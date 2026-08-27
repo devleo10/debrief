@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import AgentOrb from "@/components/AgentOrb";
+import ScrollReveal from "@/components/ScrollReveal";
 import "./landing.css";
 
 
@@ -20,9 +21,10 @@ import "./landing.css";
 export default function LandingPage() {
   return (
     <div className="landing">
+      <ScrollReveal />
       <nav className="landing-nav">
         <Link href="/" className="landing-wordmark">
-          FOUNDER<span>/</span>BRIEF
+          DEBRIEF
         </Link>
         <div className="landing-nav-links">
           <a href="#dossier">Dossier</a>
@@ -34,17 +36,18 @@ export default function LandingPage() {
       <main>
         <section className="landing-hero">
           <div className="landing-hero-copy">
-            <div className="landing-eyebrow">
+            <div className="landing-eyebrow hero-in hero-d1">
               <Sparkles size={14} /> Research-first startup validation
             </div>
-            <h1 className="landing-title">
-              A market briefing before you waste months building.
+            <h1 className="landing-title hero-in hero-d2">
+              A <span className="title-grad">market briefing</span> before you
+              waste months building.
             </h1>
-            <p className="landing-sub">
-              Founder Brief turns a messy idea into a researched dossier, a seven-agent critique,
+            <p className="landing-sub hero-in hero-d3">
+              Debrief turns a messy idea into a researched dossier, a seven-agent critique,
               and a verdict you can act on: ship, pivot, or kill.
             </p>
-            <div className="landing-actions">
+            <div className="landing-actions hero-in hero-d4">
               <Link href="/brief" className="landing-primary">
                 Start with one sentence <ArrowRight size={16} />
               </Link>
@@ -52,12 +55,12 @@ export default function LandingPage() {
                 Use detailed brief
               </Link>
             </div>
-            <div className="landing-proof">
+            <div className="landing-proof hero-in hero-d5">
               <span><CheckCircle2 size={14} /> No account</span>
               <span><CheckCircle2 size={14} /> Web research</span>
               <span><CheckCircle2 size={14} /> Evidence + critique</span>
             </div>
-            <div className="landing-stats" aria-label="Product stats">
+            <div className="landing-stats hero-in hero-d6" aria-label="Product stats">
               <div><strong>7</strong><span>market scans</span></div>
               <div><strong>7</strong><span>expert critiques</span></div>
               <div><strong>~60s</strong><span>typical runtime</span></div>
@@ -68,17 +71,17 @@ export default function LandingPage() {
         </section>
 
         <section className="landing-band">
-          <div className="band-item">
+          <div className="band-item" data-reveal="1">
             <div className="band-icon"><BarChart3 size={18} /></div>
             <strong>Market reality</strong>
             <span>Competitors, pricing, funding signals, and market gaps in one dossier.</span>
           </div>
-          <div className="band-item">
+          <div className="band-item" data-reveal="2">
             <div className="band-icon"><Users size={18} /></div>
             <strong>Multiple judges</strong>
             <span>VC, engineer, PM, UX, user, indie hacker, and devil&apos;s advocate.</span>
           </div>
-          <div className="band-item">
+          <div className="band-item" data-reveal="3">
             <div className="band-icon"><ShieldAlert size={18} /></div>
             <strong>Kill-shot clarity</strong>
             <span>The report names what breaks the idea and what insight is still worth keeping.</span>
@@ -96,7 +99,7 @@ export default function LandingPage() {
         </section>
 
         <section className="landing-section">
-          <div className="section-copy">
+          <div className="section-copy" data-reveal="1">
             <div className="landing-section-title">WHAT CHANGES</div>
             <h2>It does not validate your ego. It validates the workflow.</h2>
             <p>
@@ -105,21 +108,21 @@ export default function LandingPage() {
             </p>
           </div>
           <div className="workflow-grid">
-            <div className="workflow-card">
+            <div className="workflow-card" data-reveal="1">
               <div className="workflow-step">01</div>
               <MessageSquareText size={18} />
               <span>Input</span>
               <strong>Messy founder idea</strong>
               <p>Voice or text is cleaned into a sharper research brief before agents judge it.</p>
             </div>
-            <div className="workflow-card">
+            <div className="workflow-card" data-reveal="2">
               <div className="workflow-step">02</div>
               <Search size={18} />
               <span>Act 1</span>
               <strong>Dossier</strong>
               <p>Relevant competitors, pricing, pain points, communities, and launch channels.</p>
             </div>
-            <div className="workflow-card">
+            <div className="workflow-card" data-reveal="3">
               <div className="workflow-step">03</div>
               <Gavel size={18} />
               <span>Act 2</span>
@@ -135,12 +138,12 @@ export default function LandingPage() {
             <h2>Less generic advice. More falsifiable claims.</h2>
           </div>
           <div className="compare-columns">
-            <div className="compare-box muted">
+            <div className="compare-box muted" data-reveal="1">
               <span>Generic AI answer</span>
               <p>“Great idea. Talk to users, think about your moat, and refine go-to-market.”</p>
             </div>
-            <div className="compare-box strong">
-              <span>Founder Brief answer</span>
+            <div className="compare-box strong" data-reveal="2">
+              <span>Debrief answer</span>
               <p>
                 “Your buyer already has async standup bots. Pivot to incident-heavy support teams
                 or kill the generic Slack-summary angle.”
@@ -149,7 +152,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="landing-cta-block">
+        <section className="landing-cta-block" data-reveal="1">
           <div>
             <div className="landing-section-title">START WITH THE ROUGH VERSION</div>
             <h2>Drop the idea as-is. The first job is making it testable.</h2>
@@ -161,7 +164,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="landing-footer">
-        Founder Brief — market intel + honest verdict. Not financial advice.
+        Debrief — market intel + honest verdict. Not financial advice.
       </footer>
     </div>
   );

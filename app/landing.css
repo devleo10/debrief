@@ -47,8 +47,23 @@
   text-decoration: none;
 }
 
-.landing-nav-links a:hover {
-  color: var(--text-1);
+.landing-nav-links a:not(.landing-nav-cta) {
+  position: relative;
+}
+
+.landing-nav-links a:not(.landing-nav-cta)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: -4px;
+  height: 1px;
+  background: var(--accent);
+  transition: right 0.25s ease;
+}
+
+.landing-nav-links a:not(.landing-nav-cta):hover::after {
+  right: 0;
 }
 
 .landing-nav-links .landing-nav-cta {
@@ -98,6 +113,52 @@
   z-index: 2;
 }
 
+/* ---- Bold hero entrance: snappy staggered cuts ---- */
+.hero-in {
+  animation: heroSnap 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.hero-d1 { --d: 40ms; }
+.hero-d2 { --d: 120ms; }
+.hero-d3 { --d: 200ms; }
+.hero-d4 { --d: 280ms; }
+.hero-d5 { --d: 360ms; }
+.hero-d6 { --d: 440ms; }
+
+@keyframes heroSnap {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+    clip-path: inset(0 0 100% 0);
+  }
+  60% {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    clip-path: inset(0 0 -10% 0);
+  }
+}
+
+/* ---- Scroll reveal: quick, decisive ---- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-reveal="2"] { transition-delay: 70ms; }
+[data-reveal="3"] { transition-delay: 140ms; }
+
+[data-reveal].is-revealed {
+  opacity: 1;
+  transform: none;
+}
+
 .landing-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -119,6 +180,14 @@
   letter-spacing: 0;
   color: var(--text-1);
   margin-bottom: 22px;
+}
+
+.landing-title .title-grad {
+  background: linear-gradient(94deg, var(--accent) 0%, #ff8a5c 55%, #ffb199 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .landing-sub {
@@ -155,6 +224,38 @@
   color: #0a0a0d;
   background: var(--accent);
   border: 1px solid var(--accent);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.25s;
+}
+
+.landing-primary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.55s ease;
+  pointer-events: none;
+}
+
+.landing-primary:hover::after {
+  left: 135%;
+}
+
+.landing-primary:hover {
+  box-shadow: 0 8px 28px rgba(255, 94, 73, 0.35);
+}
+
+.landing-primary svg {
+  transition: transform 0.2s ease;
+}
+
+.landing-primary:hover svg {
+  transform: translateX(3px);
 }
 
 .landing-secondary {
@@ -162,6 +263,12 @@
   color: var(--text-1);
   border: 1px solid var(--line-2);
   background: rgba(16, 16, 20, 0.72);
+  transition: transform 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.landing-secondary:hover {
+  border-color: var(--text-3);
+  background: rgba(21, 25, 32, 0.9);
 }
 
 .landing-primary:hover,
@@ -238,205 +345,91 @@
   animation: slideUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.aorb-svg {
+.aorb-root::after {
+  content: "";
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse at center, black 20%, transparent 65%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 20%, transparent 65%);
 }
 
-/* ---- Dashed line flow ---- */
-.aorb-dash {
-  animation: aorb-dashflow linear infinite;
-}
-@keyframes aorb-dashflow {
-  to { stroke-dashoffset: -30; }
-}
-
-/* ---- Floor rings (dash travel = spin illusion) ---- */
-.aorb-ring-fwd {
-  animation: aorb-dashfwd 2.8s linear infinite;
-}
-.aorb-ring-back {
-  animation: aorb-dashback 4.2s linear infinite;
-}
-@keyframes aorb-dashfwd  { to { stroke-dashoffset: -28; } }
-@keyframes aorb-dashback { to { stroke-dashoffset: 20; } }
-
-/* ---- Aura breathe — very gentle ---- */
-.aorb-aura {
-  animation: aorb-aura-breathe 4s ease-in-out infinite;
-}
-@keyframes aorb-aura-breathe {
-  0%, 100% { opacity: 0.65; }
-  50%       { opacity: 0.9; }
+/* ---- Agent panel cards (used by components/AgentOrb.tsx) ---- */
+.aorb-panel {
+  --cc: var(--accent);
+  position: relative;
+  overflow: hidden;
+  background: rgba(13, 14, 18, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transition:
+    border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ---- Orb core breathe — minimal ---- */
-.aorb-core {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: aorb-core-breathe 3.8s ease-in-out infinite;
-}
-@keyframes aorb-core-breathe {
-  0%, 100% { transform: scale(0.98); opacity: 0.92; }
-  50%       { transform: scale(1.02); opacity: 1; }
-}
-
-/* ---- Gem pulse ---- */
-.aorb-gem {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: aorb-gem-pulse 3.2s ease-in-out infinite;
-}
-@keyframes aorb-gem-pulse {
-  0%, 100% { opacity: 0.88; }
-  50%       { opacity: 1; }
-}
-
-/* ---- Tilted disc spinning — slower ---- */
-.aorb-disc {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: aorb-disc-spin 12s linear infinite;
-}
-@keyframes aorb-disc-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
-/* ============================================================
-   Agent Cards
-   ============================================================ */
-
-.aorb-card {
+.aorb-panel::before {
+  content: "";
   position: absolute;
-  transform: translate(-50%, -50%);
-  min-width: 150px;
-  max-width: 172px;
-  border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(11, 11, 15, 0.92);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow:
-    0 0 0 0.5px rgba(255, 255, 255, 0.04),
-    0 8px 32px rgba(0, 0, 0, 0.62),
-    0 0 22px color-mix(in srgb, var(--cc, #ff5e49) 10%, transparent);
-  overflow: hidden;
-  cursor: default;
-  z-index: 10;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.aorb-card:hover {
-  border-color: color-mix(in srgb, var(--cc, #ff5e49) 42%, transparent);
-  box-shadow:
-    0 0 0 0.5px rgba(255, 255, 255, 0.06),
-    0 14px 40px rgba(0, 0, 0, 0.72),
-    0 0 36px color-mix(in srgb, var(--cc, #ff5e49) 20%, transparent);
-}
-
-/* Individual float animations — very gentle */
-.aorb-card-0 { animation: aorb-f0 6s ease-in-out infinite; }
-.aorb-card-1 { animation: aorb-f1 7s ease-in-out infinite; }
-.aorb-card-2 { animation: aorb-f2 5.8s ease-in-out infinite; }
-.aorb-card-3 { animation: aorb-f3 7.2s ease-in-out infinite; }
-.aorb-card-4 { animation: aorb-f4 6.5s ease-in-out infinite; }
-.aorb-card-5 { animation: aorb-f5 6.1s ease-in-out infinite; }
-
-@keyframes aorb-f0 { 0%,100% { transform:translate(-50%,-50%); } 50% { transform:translate(-50%,-52.5%); } }
-@keyframes aorb-f1 { 0%,100% { transform:translate(-50%,-50%); } 50% { transform:translate(-48.5%,-51.5%); } }
-@keyframes aorb-f2 { 0%,100% { transform:translate(-50%,-50%); } 50% { transform:translate(-51.5%,-52%); } }
-@keyframes aorb-f3 { 0%,100% { transform:translate(-50%,-50%); } 50% { transform:translate(-49.5%,-53%); } }
-@keyframes aorb-f4 { 0%,100% { transform:translate(-50%,-50%); } 50% { transform:translate(-47.5%,-51%); } }
-@keyframes aorb-f5 { 0%,100% { transform:translate(-50%,-50%); } 50% { transform:translate(-51%,-52.5%); } }
-
-/* Top accent bar */
-.aorb-card-topbar {
+  top: 0;
+  left: 0;
+  right: 0;
   height: 2px;
-  width: 100%;
-  flex-shrink: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--cc) 85%, transparent),
+    transparent
+  );
+  opacity: 0.45;
+  transition: opacity 0.3s;
 }
 
-/* Inner content padding */
-.aorb-card-inner {
-  padding: 9px 12px 10px;
+.aorb-panel:hover {
+  border-color: color-mix(in srgb, var(--cc) 45%, transparent);
+  box-shadow:
+    0 0 26px color-mix(in srgb, var(--cc) 16%, transparent),
+    0 12px 32px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
 }
 
-/* Header row */
-.aorb-card-head {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 5px;
+.aorb-panel--active {
+  border-color: color-mix(in srgb, var(--cc) 40%, transparent);
+  box-shadow:
+    0 0 22px color-mix(in srgb, var(--cc) 14%, transparent),
+    0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-.aorb-card-ico {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  opacity: 0.9;
+.aorb-panel:hover::before {
+  opacity: 1;
 }
 
-.aorb-card-lbl {
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.7px;
-  text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Gentle floating bob on agent cards */
+.aorb-float-0, .aorb-float-1, .aorb-float-2,
+.aorb-float-3, .aorb-float-4, .aorb-float-5 {
+  animation: aorbBob 5s ease-in-out infinite;
+}
+.aorb-float-1 { animation-delay: -0.8s; animation-duration: 5.4s; }
+.aorb-float-2 { animation-delay: -1.6s; animation-duration: 4.8s; }
+.aorb-float-3 { animation-delay: -2.4s; animation-duration: 5.6s; }
+.aorb-float-4 { animation-delay: -3.2s; animation-duration: 5.2s; }
+.aorb-float-5 { animation-delay: -4.0s; animation-duration: 4.6s; }
+
+@keyframes aorbBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
 
-/* Live status dot */
-.aorb-card-live {
-  flex-shrink: 0;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  animation: aorb-live 2.4s ease-out infinite;
-}
-@keyframes aorb-live {
-  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cc, #ff5e49) 55%, transparent); }
-  70%  { box-shadow: 0 0 0 5px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-
-/* Description text */
-.aorb-card-txt {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--text-3);
-  line-height: 1.56;
-  white-space: pre-line;
-  margin-bottom: 7px;
-}
-
-/* Progress bar */
-.aorb-card-track {
-  height: 2px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.aorb-card-prog {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--cc, #ff5e49);
-  animation: aorb-progress 2.9s ease-in-out infinite;
-}
-
-@keyframes aorb-progress {
-  0%   { width: 0%;   opacity: 0.8; }
-  50%  { width: 70%;  opacity: 0.85; }
-  78%  { width: 70%;  opacity: 0.4;  }
-  100% { width: 0%;   opacity: 0;    }
-}
+/* ============================================================ */
 
 
 
@@ -684,9 +677,15 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .signal-track,
-  .cockpit-live i {
-    animation: none;
+  .hero-in,
+  [data-reveal],
+  .aorb-root,
+  .signal-track {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    clip-path: none !important;
   }
 }
 
@@ -700,10 +699,6 @@
   .landing-hero {
     min-height: auto;
     padding-top: 44px;
-  }
-
-  .product-cockpit {
-    max-width: 720px;
   }
 
   .landing-band,
@@ -734,22 +729,6 @@
 
   .landing-title {
     font-size: 42px;
-  }
-
-  .cockpit-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .cockpit-scores {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .dossier-row {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .dossier-row strong {
-    grid-column: 2;
   }
 
   .landing-cta-block {
