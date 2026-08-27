@@ -92,7 +92,15 @@ export type LaunchStrategy = {
   kpis: string[];
 };
 
+/** A verifiable link from live search, attached to the section that used it. */
+export type SourceLink = {
+  section: string;
+  title: string;
+  url: string;
+};
+
 export type ResearchResult = {
+  sources: SourceLink[];
   competitors: Competitor[];
   pricing: {
     range: { low: number; high: number; currency: string; period: string };
@@ -133,10 +141,10 @@ export type ResearchInput = {
 export type ResearchEvent =
   | { type: "status"; agent: string; status: string }
   | { type: "competitor"; data: Competitor }
-  | { type: "pricing"; data: any }
-  | { type: "funding"; data: any }
-  | { type: "gaps"; data: any }
-  | { type: "distribution"; data: any }
+  | { type: "pricing"; data: ResearchResult["pricing"] | null }
+  | { type: "funding"; data: ResearchResult["funding"] | null }
+  | { type: "gaps"; data: ResearchResult["gaps"] | null }
+  | { type: "distribution"; data: ResearchResult["distribution"] | null }
   | { type: "positioning"; data: Positioning }
   | { type: "launch"; data: LaunchStrategy }
   | { type: "done"; report_id: string; processing_time: string; cached?: boolean }

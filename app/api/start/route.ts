@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import { runResearch } from "@/lib/research/orchestrator";
+import { createRateLimiter } from "@/lib/rateLimit";
+import { buildDossierForAgents } from "@/lib/dossier";
 import { vcPrompt } from "@/lib/agents/vc";
 import { engineerPrompt } from "@/lib/agents/engineer";
 import { indiePrompt } from "@/lib/agents/indiehacker";
@@ -33,37 +35,31 @@ const openai = new OpenAI({
 
 // --- Rate limiting ---
 
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW = 60_000;
-const RATE_LIMIT_MAX = 5;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT_MAX) return false;
-  entry.count++;
-  return true;
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of rateLimitMap) {
-    if (now > val.resetAt) rateLimitMap.delete(key);
-  }
-}, 60_000);
+const rateLimiter = createRateLimiter(60_000, 5);
 
 // --- Validation agents ---
 
-type AgentSpec = { name: string; prompt: string; maxTokens: number; temperature: number };
+type AgentSpec = {
+  name: string;
+  prompt: string;
+  maxTokens: number;
+  temperature: number;
+};
 
 const AGENTS: AgentSpec[] = [
   { name: "vc", prompt: vcPrompt, maxTokens: 700, temperature: 0.6 },
-  { name: "engineer", prompt: engineerPrompt, maxTokens: 700, temperature: 0.6 },
-  { name: "indiehacker", prompt: indiePrompt, maxTokens: 700, temperature: 0.6 },
+  {
+    name: "engineer",
+    prompt: engineerPrompt,
+    maxTokens: 700,
+    temperature: 0.6,
+  },
+  {
+    name: "indiehacker",
+    prompt: indiePrompt,
+    maxTokens: 700,
+    temperature: 0.6,
+  },
   { name: "pm", prompt: pmPrompt, maxTokens: 700, temperature: 0.6 },
   { name: "ux", prompt: uxPrompt, maxTokens: 700, temperature: 0.6 },
   { name: "user", prompt: userPrompt, maxTokens: 700, temperature: 0.7 },
@@ -77,7 +73,7 @@ function sseEvent(event: string, data: unknown): string {
 async function complete(
   system: string,
   user: string,
-  opts: { maxTokens: number; temperature: number; model?: string }
+  opts: { maxTokens: number; temperature: number; model?: string },
 ): Promise<string> {
   const response = await openai.chat.completions.create({
     model: opts.model || MODEL,
@@ -91,12 +87,15 @@ async function complete(
   return response.choices[0]?.message?.content || "";
 }
 
-async function repairScores(agentName: string, output: string): Promise<AgentScores> {
+async function repairScores(
+  agentName: string,
+  output: string,
+): Promise<AgentScores> {
   try {
     const repaired = await complete(
       `You convert a critique into its score block. Read the critique and output ONLY a <scores> block: raw JSON with keys market, technical, launch, ux, retention, overall. Use integers 1-10 for dimensions the critique clearly judges and null for the rest. No other text.`,
       `Critique from the "${agentName}" agent:\n\n${output}`,
-      { maxTokens: 120, temperature: 0, model: REPAIR_MODEL }
+      { maxTokens: 120, temperature: 0, model: REPAIR_MODEL },
     );
     return extractScores(repaired);
   } catch {
@@ -104,9 +103,16 @@ async function repairScores(agentName: string, output: string): Promise<AgentSco
   }
 }
 
-async function runAgent(spec: AgentSpec, ideaText: string): Promise<AgentResult> {
+async function runAgent(
+  spec: AgentSpec,
+  ideaText: string,
+): Promise<AgentResult> {
   try {
-    const output = await complete(spec.prompt, `Evaluate this idea:\n\n${ideaText}`, spec);
+    const output = await complete(
+      spec.prompt,
+      `Evaluate this idea:\n\n${ideaText}`,
+      spec,
+    );
     let scores = extractScores(output);
     if (!hasAnyScore(scores) && output.trim()) {
       scores = await repairScores(spec.name, output);
@@ -122,19 +128,22 @@ async function runAgent(spec: AgentSpec, ideaText: string): Promise<AgentResult>
   }
 }
 
-async function runAgents(ideaText: string, enqueue: (chunk: string) => void): Promise<AgentResult[]> {
+async function runAgents(
+  ideaText: string,
+  enqueue: (chunk: string) => void,
+): Promise<AgentResult[]> {
   return Promise.all(
     AGENTS.map(async (spec) => {
       const result = await runAgent(spec, ideaText);
       enqueue(sseEvent("agent", result));
       return result;
-    })
+    }),
   );
 }
 
 async function runSynthesis(
   agentResults: AgentResult[],
-  enqueue: (chunk: string) => void
+  enqueue: (chunk: string) => void,
 ): Promise<ValidateResponse["synthesis"]> {
   const succeeded = agentResults.filter((r) => !r.error);
   if (succeeded.length === 0) {
@@ -153,7 +162,10 @@ async function runSynthesis(
 
   let output = "";
   try {
-    output = await complete(synthPrompt, synthInput, { maxTokens: 1000, temperature: 0.3 });
+    output = await complete(synthPrompt, synthInput, {
+      maxTokens: 1400,
+      temperature: 0.3,
+    });
   } catch {
     output = "";
   }
@@ -163,11 +175,14 @@ async function runSynthesis(
     scores = averageScores(succeeded.map((r) => r.scores));
   }
   if (!/<verdict>/i.test(output)) {
-    const verdict = extractVerdict(output, scores.overall) || verdictFromScore(scores.overall);
+    const verdict =
+      extractVerdict(output, scores.overall) ||
+      verdictFromScore(scores.overall);
     if (verdict) output = `<verdict>${verdict}</verdict>\n\n${output}`.trim();
   }
   if (!output) {
-    output = "Synthesis failed for this run. Verdict and scores below are derived from the individual agent reports.";
+    output =
+      "Synthesis failed for this run. Verdict and scores below are derived from the individual agent reports.";
     const verdict = verdictFromScore(scores.overall);
     if (verdict) output = `<verdict>${verdict}</verdict>\n\n${output}`;
   }
@@ -177,33 +192,6 @@ async function runSynthesis(
   return synthesis;
 }
 
-function buildDossierForAgents(research: Awaited<ReturnType<typeof runResearch>>): string {
-  const competitors = research.competitors
-    .slice(0, 6)
-    .map((c) => `- ${c.name}: ${c.description}${c.pricing ? ` Pricing: ${c.pricing}.` : ""}`)
-    .join("\n");
-  const pricing = research.pricing?.competitors
-    ?.slice(0, 5)
-    .map((c) => `- ${c.name}: ${(c.tiers || []).map((t) => `${t.name} ${t.price}`).join(", ")}`)
-    .join("\n");
-  const gaps = research.gaps?.pain_points
-    ?.slice(0, 4)
-    .map((p) => `- ${p.point} (${p.frequency || "frequency unknown"})`)
-    .join("\n");
-  const distribution = research.distribution?.distribution_channels
-    ?.slice(0, 4)
-    .map((d) => `- ${d.channel}: ${d.effectiveness}`)
-    .join("\n");
-
-  return [
-    "Research dossier the agents must use as evidence:",
-    competitors ? `Competitors:\n${competitors}` : null,
-    pricing ? `Pricing:\n${pricing}` : null,
-    gaps ? `Pain points / gaps:\n${gaps}` : null,
-    distribution ? `Distribution:\n${distribution}` : null,
-    research.positioning?.one_liner ? `Positioning draft: ${research.positioning.one_liner}` : null,
-  ].filter(Boolean).join("\n\n").slice(0, 7000);
-}
 
 // --- Main handler ---
 
@@ -216,15 +204,18 @@ export async function POST(req: Request) {
     req.headers.get("x-real-ip") ||
     "unknown";
 
-  if (!checkRateLimit(ip)) {
+  if (!rateLimiter.check(ip)) {
     return Response.json(
       { error: "Rate limit exceeded. Try again in 1 minute." },
-      { status: 429 }
+      { status: 429 },
     );
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ error: "Server is missing OPENAI_API_KEY" }, { status: 500 });
+    return Response.json(
+      { error: "Server is missing OPENAI_API_KEY" },
+      { status: 500 },
+    );
   }
 
   let body;
@@ -259,7 +250,10 @@ export async function POST(req: Request) {
   }
 
   const sanitize = (s: string) =>
-    s.replace(/[^\w\s.,!?;:'"()-]/g, "").trim().slice(0, 2000);
+    s
+      .replace(/[^\w\s.,!?;:'"()-]/g, "")
+      .trim()
+      .slice(0, 2000);
 
   const researchInput: ResearchInput = {
     title: sanitize(title),
@@ -268,7 +262,8 @@ export async function POST(req: Request) {
   };
 
   const buildSection = (label: string, value?: unknown) => {
-    const trimmed = typeof value === "string" ? value.trim().slice(0, MAX_FIELD_CHARS) : "";
+    const trimmed =
+      typeof value === "string" ? value.trim().slice(0, MAX_FIELD_CHARS) : "";
     return trimmed ? `${label}: ${trimmed}` : null;
   };
 
@@ -295,12 +290,26 @@ export async function POST(req: Request) {
   if (format === "json") {
     try {
       const researchEvents: string[] = [];
-      const researchResult = await runResearch(researchInput, (e) => researchEvents.push(e));
-      const agentResults = await runAgents(`${ideaText}\n\n${buildDossierForAgents(researchResult)}`, () => {});
+      const researchResult = await runResearch(
+        researchInput,
+        (e) => researchEvents.push(e),
+        req.signal,
+      );
+      const agentResults = await runAgents(
+        `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
+        () => {},
+      );
       const synthesis = await runSynthesis(agentResults, () => {});
-      return Response.json({ research: researchResult, agents: agentResults, synthesis });
+      return Response.json({
+        research: researchResult,
+        agents: agentResults,
+        synthesis,
+      });
     } catch (err: any) {
-      return Response.json({ error: err.message || "Unknown error" }, { status: 500 });
+      return Response.json(
+        { error: err.message || "Unknown error" },
+        { status: 500 },
+      );
     }
   }
 
@@ -311,32 +320,76 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const enqueue = (chunk: string) => {
-        try { controller.enqueue(encoder.encode(chunk)); } catch {}
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {}
       };
 
       try {
+        // Abort when the client cancels OR disconnects — stops in-flight OpenAI calls.
+        const clientAbort = new Promise<never>((_, reject) => {
+          req.signal.addEventListener("abort", () =>
+            reject(new Error("Cancelled")),
+          );
+        });
+        abortController.signal.addEventListener("abort", () => {
+          try {
+            controller.enqueue(
+              encoder.encode(sseEvent("error", { message: "Cancelled" })),
+            );
+          } catch {}
+        });
+
         // Phase 1: Research
-        const researchPromise = runResearch(researchInput, enqueue);
+        const researchPromise = runResearch(
+          researchInput,
+          enqueue,
+          abortController.signal,
+        );
         const abortPromise = new Promise<never>((_, reject) => {
           abortController.signal.addEventListener("abort", () => {
             reject(new Error("Cancelled"));
           });
         });
 
-        const researchResult = await Promise.race([researchPromise, abortPromise]);
+        const researchResult = await Promise.race([
+          researchPromise,
+          abortPromise,
+          clientAbort,
+        ]);
+
+        // Emit verifiable source links gathered during research.
+        if (researchResult?.sources?.length) {
+          enqueue(sseEvent("sources", { type: "sources", data: researchResult.sources }));
+        }
 
         // Phase 2: Validation
         enqueue(sseEvent("status", { phase: "validate", status: "starting" }));
-        const agentResults = await runAgents(`${ideaText}\n\n${buildDossierForAgents(researchResult)}`, enqueue);
-        await runSynthesis(agentResults, enqueue);
+        const agentResults = await Promise.race([
+          runAgents(
+            `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
+            enqueue,
+          ),
+          abortPromise,
+          clientAbort,
+        ]);
+        await Promise.race([
+          runSynthesis(agentResults, enqueue),
+          abortPromise,
+          clientAbort,
+        ]);
 
         enqueue(sseEvent("done", {}));
       } catch (err: any) {
         if (err.message !== "Cancelled") {
-          enqueue(sseEvent("error", { message: err.message || "Research failed" }));
+          enqueue(
+            sseEvent("error", { message: err.message || "Research failed" }),
+          );
         }
       } finally {
-        try { controller.close(); } catch {}
+        try {
+          controller.close();
+        } catch {}
       }
     },
   });

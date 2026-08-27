@@ -12,6 +12,7 @@ Produce, in this order, with a short labeled section for each:
    - If PIVOT: one concrete repositioning naming the new target user and what gets cut. "Narrow the focus" is not a pivot; "drop teams, sell only to X who already do Y" is.
    - If SHIP IT: the single most likely post-launch killer and the earliest signal that it is happening.
    - If KILL IT: the one salvageable insight worth keeping for a future idea.
+7. KILL CRITERIA — Three measurable stop signals with explicit numbers and deadlines, written as "If X by DATE, stop." Ground them in this idea's actual weakest dimension (e.g. "Fewer than 10 paying users by Day 60", "CAC above $40 for 3 consecutive weeks", "Under 30% of beta users return in week 2"). Never generic; every criterion must be checkable from a dashboard, not a feeling.
 
 Final scores: weigh each agent most heavily on their own dimension (VC on market, engineer on technical, indie hacker on launch, UX on ux, user on retention). Overall is your judgment, not an average — one fatal dimension can sink an otherwise decent idea.
 
