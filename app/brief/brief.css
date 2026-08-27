@@ -2554,3 +2554,95 @@
     padding: 14px;
   }
 }
+
+/* ============================================================
+   Polish additions (append-only): verdict entrance, agent card
+   fade-in, smooth progress fills. New classes only.
+   ============================================================ */
+
+@keyframes verdictEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.verdict-enter {
+  animation: verdictEnter 300ms ease both;
+}
+
+.agent-card.enter {
+  animation: fadeIn 400ms ease both;
+}
+
+.progress-fill.dossier,
+.progress-fill.room {
+  transition: width 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .verdict-enter,
+  .agent-card.enter {
+    animation: none;
+  }
+
+  .progress-fill.dossier,
+  .progress-fill.room {
+    transition: none;
+  }
+}
+
+/* AgentCard doesn't take extra classNames, so scope the entrance to
+   report cards: the non-loading card element mounts when its result
+   arrives, which plays this animation at exactly that moment. */
+.report-act-room .agent-card {
+  animation: fadeIn 400ms ease both;
+}
+
+/* === Source links & export (added) === */
+.calibration-note {
+  font-size: 0.78rem;
+  color: var(--muted, #8a8f98);
+  max-width: 60ch;
+  margin: -4px 0 16px;
+  line-height: 1.5;
+}
+
+.sources-note {
+  font-size: 0.82rem;
+  color: var(--muted, #8a8f98);
+  margin-bottom: 10px;
+}
+
+.source-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.source-item a {
+  color: var(--accent, #7aa2ff);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.source-item a:hover {
+  text-decoration: underline;
+}
+
+.source-section {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #8a8f98);
+  min-width: 88px;
+}
