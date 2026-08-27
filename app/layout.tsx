@@ -24,8 +24,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Founder Brief — market intel + brutal verdict",
-  description: "One prompt. Full founder briefing — competitors, pricing, funding, gaps, positioning, launch plan — plus a ship/pivot/kill verdict from seven skeptical experts.",
+  title: "Debrief — AI startup validation in 60 seconds",
+  description: "One prompt. Full startup briefing — competitors, pricing, funding, gaps, positioning, launch plan — plus a ship/pivot/kill verdict from seven skeptical experts.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
