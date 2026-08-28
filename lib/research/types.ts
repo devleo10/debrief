@@ -100,6 +100,13 @@ export type SourceLink = {
 };
 
 export type ResearchResult = {
+  brief?: {
+    title: string;
+    description: string;
+    job?: string;
+    buyer?: string;
+    family?: string;
+  };
   sources: SourceLink[];
   competitors: Competitor[];
   pricing: {
@@ -136,9 +143,13 @@ export type ResearchInput = {
   title: string;
   description: string;
   context?: string;
+  job?: string;
+  buyer?: string;
+  family?: "idea_validation" | "project_management" | "other";
 };
 
 export type ResearchEvent =
+  | { type: "brief"; data: NonNullable<ResearchResult["brief"]> }
   | { type: "status"; agent: string; status: string }
   | { type: "competitor"; data: Competitor }
   | { type: "pricing"; data: ResearchResult["pricing"] | null }

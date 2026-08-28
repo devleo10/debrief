@@ -65,4 +65,16 @@ describe("searchWithSource (mock fallback, no API keys)", () => {
     expect(source).toBe("mock");
     expect(results).toEqual([]);
   });
+
+  it("does not use mock search in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ALLOW_MOCK_SEARCH", "");
+    vi.stubEnv("EXA_API_KEY", "");
+    vi.stubEnv("TAVILY_API_KEY", "");
+    const { results, errors } = await searchWithSource({
+      query: "slack standup bot competitors alternatives",
+    });
+    expect(results).toEqual([]);
+    expect(errors.join(" ")).toMatch(/mock search disabled/);
+  });
 });

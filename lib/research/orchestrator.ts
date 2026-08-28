@@ -16,6 +16,20 @@ import type {
   ResearchEvent,
   SourceLink,
 } from "./types";
+import {
+  competitorQueries,
+  distributionQueries,
+  dropUnsourcedRounds,
+  filterCompetitors,
+  gapsQueries,
+  inferFamily,
+  scrubCommunities,
+  scrubGaps,
+  scrubPositioning,
+  seedCompetitorsFromSearch,
+} from "./quality";
+import { redisConfigured, redisGet, redisSet } from "../upstash";
+import { pricingPageUrls, scrapePricingPages } from "./firecrawl";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 const RESEARCH_MODEL = process.env.OPENAI_RESEARCH_MODEL || "gpt-4o-mini";
@@ -43,31 +57,55 @@ function cacheKey(input: ResearchInput): string {
   return `report_${hash}`;
 }
 
-function getCachedReport(
+async function getCachedReport(
   input: ResearchInput,
-): { result: ResearchResult; reportId: string } | null {
+): Promise<{ result: ResearchResult; reportId: string } | null> {
   const key = cacheKey(input);
   const entry = reportCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.timestamp > CACHE_TTL) {
-    reportCache.delete(key);
+  if (entry) {
+    if (Date.now() - entry.timestamp > CACHE_TTL) {
+      reportCache.delete(key);
+    } else {
+      return { result: entry.result, reportId: entry.reportId };
+    }
+  }
+  if (!redisConfigured()) return null;
+  const raw = await redisGet(`research:${key}`);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      result: ResearchResult;
+      reportId: string;
+    };
+    if (!parsed?.result || !parsed.reportId) return null;
+    reportCache.set(key, {
+      result: parsed.result,
+      reportId: parsed.reportId,
+      timestamp: Date.now(),
+    });
+    return parsed;
+  } catch {
     return null;
   }
-  return { result: entry.result, reportId: entry.reportId };
 }
 
-function setCachedReport(
+async function setCachedReport(
   input: ResearchInput,
   result: ResearchResult,
   reportId: string,
 ) {
   const key = cacheKey(input);
   reportCache.set(key, { result, reportId, timestamp: Date.now() });
-
-  // Evict oldest if cache grows too large
   if (reportCache.size > 100) {
     const oldest = reportCache.keys().next().value;
     if (oldest) reportCache.delete(oldest);
+  }
+  if (redisConfigured()) {
+    await redisSet(
+      `research:${key}`,
+      JSON.stringify({ result, reportId }),
+      60 * 60,
+    );
   }
 }
 
@@ -83,9 +121,48 @@ async function normalizeResearchInput(
   input: ResearchInput,
   signal?: AbortSignal,
 ): Promise<ResearchInput> {
+  const originalFamily = inferFamily(input);
   const raw =
     `${input.title}\n${input.description}\n${input.context || ""}`.trim();
-  if (raw.length < 240) return input;
+
+  const applyGuardrails = (next: ResearchInput): ResearchInput => {
+  const family =
+      originalFamily === "idea_validation"
+        ? "idea_validation"
+        : inferFamily({
+            ...next,
+            family:
+              originalFamily === "project_management"
+                ? "project_management"
+                : undefined,
+          });
+    let title = next.title;
+    if (
+      family === "idea_validation" &&
+      /project (evaluation|management)/i.test(title)
+    ) {
+      title = input.title;
+    }
+    let job = next.job;
+    if (
+      family === "idea_validation" &&
+      (!job ||
+        (/project ideas?/i.test(job) && !/ship|kill|validat|brief/i.test(job)))
+    ) {
+      job = "founder idea validation with a ship/pivot/kill verdict";
+    }
+    return {
+      ...next,
+      title,
+      family,
+      job,
+      buyer:
+        next.buyer ||
+        (family === "idea_validation" ? "early-stage founders" : undefined),
+    };
+  };
+
+  if (raw.length < 240) return applyGuardrails(input);
 
   try {
     const res = await openai.chat.completions.create(
@@ -95,18 +172,23 @@ async function normalizeResearchInput(
           {
             role: "system",
             content:
-              "Rewrite noisy founder dictation into a concise startup research brief. Preserve the actual idea, buyer, platform, and problem. Correct obvious speech-to-text mistakes. Output only raw JSON with title, description, and context strings.",
+              'Rewrite noisy founder dictation into a concise startup research brief. Preserve the actual product (including multi-agent critique, VC vs engineer, ship/pivot/kill). Do not reframe as project management or "project evaluation software". Correct speech-to-text. Output only raw JSON: title, description, context, job, buyer, family (idea_validation | project_management | other).',
           },
           { role: "user", content: raw.slice(0, 5000) },
         ],
         temperature: 0,
-        max_tokens: 350,
+        max_tokens: 400,
       },
       { signal },
     );
     const parsed = parseJson(res.choices[0]?.message?.content || "").data;
-    if (!parsed?.title || !parsed?.description) return input;
-    return {
+    if (!parsed?.title || !parsed?.description) return applyGuardrails(input);
+    const familyRaw = String(parsed.family || "");
+    const family =
+      familyRaw === "idea_validation" || familyRaw === "project_management"
+        ? familyRaw
+        : undefined;
+    return applyGuardrails({
       title: String(parsed.title).trim().slice(0, 180),
       description: String(parsed.description).trim().slice(0, 800),
       context:
@@ -114,9 +196,14 @@ async function normalizeResearchInput(
           .filter(Boolean)
           .join("\n")
           .slice(0, 1200) || undefined,
-    };
+      job: parsed.job ? String(parsed.job).trim().slice(0, 200) : input.job,
+      buyer: parsed.buyer
+        ? String(parsed.buyer).trim().slice(0, 200)
+        : input.buyer,
+      family,
+    });
   } catch {
-    return input;
+    return applyGuardrails(input);
   }
 }
 
@@ -193,11 +280,7 @@ async function runCompetitorAgent(
     sseEvent({ type: "status", agent: "competitors", status: "searching" }),
   );
 
-  const queries = [
-    `${idea.description} competitors alternatives`,
-    `${idea.title} startup funding`,
-    `${idea.title} vs competitors comparison`,
-  ];
+  const queries = competitorQueries(idea);
 
   const searchResults = await Promise.all(
     queries.map((q) => search({ query: q, numResults: 5 })),
@@ -207,7 +290,7 @@ async function runCompetitorAgent(
 
   const context = `IDEA: ${idea.title}\n${idea.description}\n${
     idea.context ? `\nCONTEXT: ${idea.context}` : ""
-  }\n\nSEARCH RESULTS:\n${allResults
+  }\nJOB: ${idea.job || ""}\nBUYER: ${idea.buyer || ""}\nFAMILY: ${inferFamily(idea)}\n\nSEARCH RESULTS:\n${allResults
     .map((r) => `[${r.title}](${r.url}) — ${r.snippet}`)
     .join("\n")}`;
 
@@ -218,7 +301,11 @@ async function runCompetitorAgent(
     enqueue,
     signal,
   );
-  const competitors = data?.competitors || data || [];
+  const competitors = filterCompetitors(
+    data?.competitors || data || [],
+    inferFamily(idea),
+    seedCompetitorsFromSearch(allResults),
+  );
 
   for (const c of competitors) {
     enqueue(sseEvent({ type: "competitor", data: c }));
@@ -251,9 +338,28 @@ async function runPricingAgent(
   const allResults = searchResults.flat();
   if (sources) sources.push(...toSourceLinks("pricing", allResults));
 
+  enqueue(sseEvent({ type: "status", agent: "pricing", status: "scraping" }));
+  const pageUrls = pricingPageUrls(competitors, allResults);
+  const scraped = await scrapePricingPages(pageUrls, signal);
+  if (sources) {
+    sources.push(
+      ...toSourceLinks(
+        "pricing",
+        scraped.map((p) => ({ title: p.url, url: p.url })),
+      ),
+    );
+  }
+
+  const pageBlock =
+    scraped.length > 0
+      ? `\n\nPAGE CONTENT (scraped pricing pages — prefer this over snippets):\n${scraped
+          .map((p) => `--- ${p.url} ---\n${p.markdown}`)
+          .join("\n\n")}`
+      : "";
+
   const context = `IDEA: ${idea.title}\n${idea.description}\n\nCOMPETITORS: ${competitorNames}\n\nSEARCH RESULTS:\n${allResults
     .map((r) => `[${r.title}](${r.url}) — ${r.snippet}`)
-    .join("\n")}`;
+    .join("\n")}${pageBlock}`;
 
   const data = await llmExtract(
     pricingAgentPrompt,
@@ -280,11 +386,19 @@ async function runFundingAgent(
   enqueue(sseEvent({ type: "status", agent: "funding", status: "searching" }));
 
   const competitorNames = competitors.map((c) => c.name).join(", ");
-  const queries = [
-    `${idea.description} market size TAM 2024 2025`,
-    `${competitorNames} funding rounds raised`,
-    `${idea.title} market growth rate`,
-  ];
+  const family = inferFamily(idea);
+  const queries =
+    family === "idea_validation"
+      ? [
+          "generative AI ChatGPT Claude market size TAM",
+          `${competitorNames || "OpenAI Anthropic"} funding rounds raised`,
+          "AI copilot SaaS startup funding 2024 2025",
+        ]
+      : [
+          `${idea.description} market size TAM 2024 2025`,
+          `${competitorNames} funding rounds raised`,
+          `${idea.title} market growth rate`,
+        ];
 
   const searchResults = await Promise.all(
     queries.map((q) => search({ query: q, numResults: 5 })),
@@ -296,6 +410,10 @@ async function runFundingAgent(
     .map((r) => `[${r.title}](${r.url}) — ${r.snippet}`)
     .join("\n")}`;
 
+  const searchBlob = allResults
+    .map((r) => `${r.title} ${r.url} ${r.snippet}`)
+    .join("\n");
+
   const data = await llmExtract(
     fundingAgentPrompt,
     context,
@@ -303,6 +421,23 @@ async function runFundingAgent(
     enqueue,
     signal,
   );
+  if (data?.funding_landscape?.notable_rounds) {
+    let rounds = dropUnsourcedRounds(
+      data.funding_landscape.notable_rounds,
+      searchBlob,
+    );
+    if (family === "idea_validation") {
+      const allow = new Set(
+        competitors.map((c) => String(c.name || "").toLowerCase()),
+      );
+      rounds = rounds.filter((r) => {
+        const name = String(r?.company || "").toLowerCase();
+        if (allow.has(name)) return true;
+        return /openai|anthropic|validatorai|perplexity/.test(name);
+      });
+    }
+    data.funding_landscape.notable_rounds = rounds;
+  }
 
   enqueue(sseEvent({ type: "funding", data }));
   enqueue(sseEvent({ type: "status", agent: "funding", status: "done" }));
@@ -319,11 +454,7 @@ async function runGapsAgent(
 ) {
   enqueue(sseEvent({ type: "status", agent: "gaps", status: "searching" }));
 
-  const queries = [
-    `${idea.description} pain points complaints frustrations`,
-    `${idea.description} reddit complaints users`,
-    `${idea.title} missing features reviews g2`,
-  ];
+  const queries = gapsQueries(idea);
 
   const searchResults = await Promise.all(
     queries.map((q) => search({ query: q, numResults: 5 })),
@@ -342,10 +473,11 @@ async function runGapsAgent(
     enqueue,
     signal,
   );
+  const scrubbed = scrubGaps(data);
 
-  enqueue(sseEvent({ type: "gaps", data }));
+  enqueue(sseEvent({ type: "gaps", data: scrubbed }));
   enqueue(sseEvent({ type: "status", agent: "gaps", status: "done" }));
-  return data;
+  return scrubbed;
 }
 
 // --- Agent: Distribution ---
@@ -360,11 +492,7 @@ async function runDistributionAgent(
     sseEvent({ type: "status", agent: "distribution", status: "searching" }),
   );
 
-  const queries = [
-    `${idea.description} community forum subreddit discord`,
-    `${idea.title} product hunt launch`,
-    `${idea.description} how competitors acquired users`,
-  ];
+  const queries = distributionQueries(idea);
 
   const searchResults = await Promise.all(
     queries.map((q) => search({ query: q, numResults: 5 })),
@@ -383,6 +511,12 @@ async function runDistributionAgent(
     enqueue,
     signal,
   );
+  if (data?.communities) {
+    data.communities = scrubCommunities(
+      data.communities,
+      allResults.map((r) => `${r.title} ${r.url} ${r.snippet}`).join("\n"),
+    );
+  }
 
   enqueue(sseEvent({ type: "distribution", data }));
   enqueue(sseEvent({ type: "status", agent: "distribution", status: "done" }));
@@ -401,7 +535,7 @@ async function runPositioningAgent(
     sseEvent({ type: "status", agent: "positioning", status: "analyzing" }),
   );
 
-  const context = `IDEA: ${idea.title}\n${idea.description}\n\nCOMPETITORS:\n${JSON.stringify(
+  const context = `IDEA: ${idea.title}\n${idea.description}\nFAMILY: ${inferFamily(idea)}\nJOB: ${idea.job || ""}\n\nCOMPETITORS:\n${JSON.stringify(
     researchData.competitors,
     null,
     2,
@@ -415,12 +549,15 @@ async function runPositioningAgent(
     2,
   )}\n\nDISTRIBUTION:\n${JSON.stringify(researchData.distribution, null, 2)}`;
 
-  const data = await llmExtract(
-    positioningAgentPrompt,
-    context,
-    "positioning",
-    enqueue,
-    signal,
+  const data = scrubPositioning(
+    await llmExtract(
+      positioningAgentPrompt,
+      context,
+      "positioning",
+      enqueue,
+      signal,
+    ),
+    inferFamily(idea),
   );
 
   enqueue(sseEvent({ type: "positioning", data }));
@@ -476,17 +613,31 @@ export async function runResearch(
   input: ResearchInput,
   enqueue: (e: string) => void,
   signal?: AbortSignal,
+  opts?: { skipCache?: boolean },
 ): Promise<ResearchResult> {
   const researchInput = await normalizeResearchInput(input, signal);
-  // Check cache first
-  const cached = getCachedReport(researchInput);
+  enqueue(
+    sseEvent({
+      type: "brief",
+      data: {
+        title: researchInput.title,
+        description: researchInput.description,
+        job: researchInput.job,
+        buyer: researchInput.buyer,
+        family: researchInput.family,
+      },
+    }),
+  );
+  const cached = opts?.skipCache ? null : await getCachedReport(researchInput);
   if (cached) {
     enqueue(
       sseEvent({ type: "status", agent: "research", status: "starting" }),
     );
     enqueue(sseEvent({ type: "status", agent: "research", status: "cached" }));
 
-    // Replay cached results as events
+    if (cached.result.brief) {
+      enqueue(sseEvent({ type: "brief", data: cached.result.brief }));
+    }
     for (const c of cached.result.competitors) {
       enqueue(sseEvent({ type: "competitor", data: c }));
     }
@@ -607,6 +758,13 @@ export async function runResearch(
   ]);
 
   const result: ResearchResult = {
+    brief: {
+      title: researchInput.title,
+      description: researchInput.description,
+      job: researchInput.job,
+      buyer: researchInput.buyer,
+      family: researchInput.family,
+    },
     sources,
     competitors: researchData.competitors,
     pricing: researchData.pricing,
@@ -633,7 +791,7 @@ export async function runResearch(
   const reportId = `report_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   // Cache the result
-  setCachedReport(researchInput, result, reportId);
+  await setCachedReport(researchInput, result, reportId);
 
   enqueue(
     sseEvent({

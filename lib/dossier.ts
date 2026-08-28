@@ -39,6 +39,9 @@ export function buildDossierForAgents(research: ResearchResult): string {
 
   return [
     "Research dossier the agents must use as evidence:",
+    research.brief?.family
+      ? `Frame: ${research.brief.family}${research.brief.job ? ` — ${research.brief.job}` : ""}. Do not recast this as project-management software unless the competitor list is actually PM tools.`
+      : null,
     competitors ? `Competitors:\n${competitors}` : null,
     pricing ? `Pricing:\n${pricing}` : null,
     gaps ? `Pain points / gaps:\n${gaps}` : null,

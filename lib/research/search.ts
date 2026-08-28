@@ -1,3 +1,5 @@
+import { mockSearchAllowed } from "@/lib/searchConfig";
+
 export type SearchResult = {
   title: string;
   url: string;
@@ -374,6 +376,14 @@ export async function searchWithSource(opts: SearchOptions): Promise<{
     if (results.length > 0) return { results, source: "tavily", errors };
   } catch (err: any) {
     errors.push(err?.message || "tavily failed");
+  }
+
+  if (!mockSearchAllowed()) {
+    return {
+      results: [],
+      source: "mock",
+      errors: [...errors, "mock search disabled in production"],
+    };
   }
 
   return { results: mockSearch(opts), source: "mock", errors };

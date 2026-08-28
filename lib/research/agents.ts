@@ -5,6 +5,7 @@ RULES:
 - For each competitor, cite the source URL.
 - Prioritize direct competitors solving the same job-to-be-done for the same buyer. Include indirect competitors only when they solve the same core workflow.
 - Exclude adjacent productivity tools that merely share broad words with the idea. For example, scheduling/calendar tools are irrelevant for a Slack/Teams status-tracking idea unless the idea is actually about scheduling.
+- If the job is idea validation / ship-or-kill critique, competitors are LLMs (ChatGPT, Claude), idea-validator apps, and human advisors — never Asana, Trello, Jira, Monday, or OKR tools.
 - Be specific about what each competitor does well and poorly.
 - Include funding, team size, and traction when available from search results.
 - If a result is only weakly related, omit it instead of padding the list.
@@ -32,7 +33,8 @@ OUTPUT FORMAT (raw JSON, no markdown fences):
 export const pricingAgentPrompt = `You are a pricing intelligence analyst. Your job is to research the pricing landscape for a startup idea's market.
 
 RULES:
-- Extract actual pricing from search results. Do not guess.
+- Prefer PAGE CONTENT (scraped markdown) over search snippets. Extract only prices that appear in that text. Do not guess.
+- If PAGE CONTENT is missing for a competitor, you may use search snippets; if the number still is not there, leave that competitor's tiers empty.
 - Price only direct or close substitutes from the competitor list. Do not introduce unrelated tools just because pricing is easy to find.
 - Identify the common pricing models (freemium, per-user, flat rate, usage-based).
 - Note which competitors offer free tiers.
@@ -64,6 +66,7 @@ RULES:
 - Identify which areas are attracting the most investment.
 - Cite all sources.
 - Do not cite placeholder domains or fabricated sources. If exact numbers aren't available, clearly label estimates as estimates and keep sources empty rather than inventing URLs.
+- notable_rounds may only include companies named in SEARCH RESULTS. Do not invent startups (EvalTech, ProjectAI, InsightEval, etc.).
 
 OUTPUT FORMAT (raw JSON, no markdown fences):
 {
@@ -90,14 +93,15 @@ RULES:
 - Identify gaps that no current competitor addresses.
 - Find underserved segments that competitors ignore.
 - Be specific — name the exact pain point, not vague categories.
-- Cite source URLs.
+- Cite source URLs that appear in SEARCH RESULTS. Never invent paths like /comments/xyz123.
+- Do not fabricate percentages ("28% of G2 reviews"). If the source does not quantify, set frequency to "unquantified in sources".
 
 OUTPUT FORMAT (raw JSON, no markdown fences):
 {
   "pain_points": [
     {
       "point": "Specific pain point described by users",
-      "frequency": "How often this comes up (e.g., '34% of G2 reviews')",
+      "frequency": "Quote or 'unquantified in sources' — never invent a percentage",
       "source": "https://source-url.com"
     }
   ],
@@ -125,6 +129,7 @@ RULES:
 - Find potential partnership channels.
 - Cite sources.
 - Match communities to the target buyer and workflow. Do not reuse generic founder, freelance, or designer communities unless the idea explicitly targets them.
+- Every community must have a real URL from SEARCH RESULTS (reddit.com/r/..., producthunt.com, a named Discord). Omit invented sites like productmanagementcommunity.com.
 
 OUTPUT FORMAT (raw JSON, no markdown fences):
 {
@@ -151,6 +156,8 @@ RULES:
 - Explain the differentiation clearly — what makes this different from all competitors found.
 - Identify why NOW is the right time.
 - Be specific and actionable, not generic.
+- If the closest substitutes are ChatGPT/Claude, say so. Do not invent a defensible multi-agent moat the research did not support.
+- Do not recategorize an idea-validation / ship-or-kill product as project management.
 
 OUTPUT FORMAT (raw JSON, no markdown fences):
 {
