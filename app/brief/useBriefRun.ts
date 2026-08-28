@@ -4,11 +4,18 @@ import { useState, useRef, useCallback } from "react";
 import { extractVerdict } from "@/lib/extractVerdict";
 import { prependHistory } from "@/lib/historyStorage";
 import type { AgentResult, SynthesisResult, HistoryEntry, IdeaInput } from "@/lib/types";
-import type { Competitor, Positioning, LaunchStrategy, SourceLink } from "@/lib/research/types";
+import type { Competitor, Positioning, LaunchStrategy, SourceLink, ResearchResult } from "@/lib/research/types";
 
 export type ResearchAgentStatus = {
   agent: string;
-  status: "pending" | "searching" | "analyzing" | "planning" | "done" | "error";
+  status:
+    | "pending"
+    | "searching"
+    | "scraping"
+    | "analyzing"
+    | "planning"
+    | "done"
+    | "error";
 };
 
 export type BriefRun = {
@@ -29,6 +36,7 @@ export type BriefRun = {
   launch: LaunchStrategy | null;
   sources: SourceLink[];
   processingTime: string | null;
+  brief: NonNullable<ResearchResult["brief"]> | null;
 
   setLoading: (v: boolean) => void;
   setError: (v: string | null) => void;
@@ -67,6 +75,9 @@ export function useBriefRun(
   const [launch, setLaunch] = useState<LaunchStrategy | null>(null);
   const [sources, setSources] = useState<SourceLink[]>([]);
   const [processingTime, setProcessingTime] = useState<string | null>(null);
+  const [brief, setBrief] = useState<NonNullable<ResearchResult["brief"]> | null>(
+    null,
+  );
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -80,6 +91,7 @@ export function useBriefRun(
     setLaunch(null);
     setSources([]);
     setProcessingTime(null);
+    setBrief(null);
     setResearchAgents([]);
     setAgentResults({});
     setSynthesis(null);
@@ -112,6 +124,8 @@ export function useBriefRun(
         }
         return [...prev, { agent: data.agent, status: data.status }];
       });
+    } else if (data.type === "brief" && data.data) {
+      setBrief(data.data);
     } else if (data.type === "competitor" && data.data) {
       setCompetitors((prev) => [...prev, data.data]);
     } else if (data.type === "pricing" && data.data) {
@@ -237,6 +251,7 @@ export function useBriefRun(
     launch,
     sources,
     processingTime,
+    brief,
     setLoading,
     setError,
     setCancelled,

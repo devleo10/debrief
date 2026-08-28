@@ -963,6 +963,7 @@
 }
 
 .agent-chip.searching,
+.agent-chip.scraping,
 .agent-chip.analyzing,
 .agent-chip.planning {
   border-color: var(--accent);

@@ -43,6 +43,7 @@ import AgentCard from "@/components/AgentCard";
 import VerdictBanner from "@/components/VerdictBanner";
 import HistoryPanel from "@/components/HistoryPanel";
 import { ReportErrorBoundary } from "@/components/ReportErrorBoundary";
+import LegalFooter from "@/components/LegalFooter";
 import { useBriefRun, type ResearchAgentStatus } from "./useBriefRun";
 import {
   CompetitorsSection,
@@ -53,6 +54,7 @@ import {
   PositioningSection,
   LaunchSection,
   SourcesSection,
+  BriefFrameSection,
 } from "./ReportSections";
 const Scorecard = dynamic(() => import("@/components/Scorecard"), {
   ssr: false,
@@ -355,6 +357,7 @@ function BriefPage() {
     launch,
     sources,
     processingTime,
+    brief,
     setLoading,
     setError,
     setCancelled,
@@ -1247,7 +1250,8 @@ function BriefPage() {
                     )}
 
                     {/* === ACT 1: THE DOSSIER === */}
-                    {(competitors.length > 0 ||
+                    {(brief ||
+                      competitors.length > 0 ||
                       pricing ||
                       funding ||
                       gaps ||
@@ -1270,6 +1274,7 @@ function BriefPage() {
                         </button>
                         {dossierExpanded && (
                           <div className="report-act-body">
+                            {brief && <BriefFrameSection brief={brief} />}
                             {competitors.length > 0 && (
                               <CompetitorsSection competitors={competitors} />
                             )}
@@ -1346,9 +1351,7 @@ function BriefPage() {
             onSelect={loadHistoryEntry}
             onClear={handleClearHistory}
           />
-          <footer className="footer">
-            Founder Brief — dossier + verdict. Not financial advice.
-          </footer>
+          <LegalFooter className="footer" />
         </main>
       )}
     </div>

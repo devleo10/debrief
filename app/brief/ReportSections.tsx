@@ -13,7 +13,23 @@ import {
   Users,
   MapPin,
 } from "lucide-react";
-import type { Competitor, Positioning, LaunchStrategy, SourceLink } from "@/lib/research/types";
+import type { Competitor, Positioning, LaunchStrategy, SourceLink, ResearchResult } from "@/lib/research/types";
+
+export function BriefFrameSection({ brief }: { brief: NonNullable<ResearchResult["brief"]> }) {
+  return (
+    <section className="report-section" aria-label="How we read this idea">
+      <h2><Search size={16} /> How we framed this idea</h2>
+      <p>{brief.title}</p>
+      {brief.family ? (
+        <div className="competitor-detail"><strong>Family:</strong> {brief.family}</div>
+      ) : null}
+      {brief.job ? (
+        <div className="competitor-detail"><strong>Job:</strong> {brief.job}</div>
+      ) : null}
+      {brief.description ? <p>{brief.description}</p> : null}
+    </section>
+  );
+}
 
 export function CompetitorsSection({ competitors }: { competitors: Competitor[] }) {
   return (
@@ -115,7 +131,11 @@ export function GapsSection({ gaps }: { gaps: any }) {
           {gaps.pain_points.map((p: any, i: number) => (
             <div key={i} className="pain-point">
               <p>{p.point}</p>
-              <span className="frequency">{p.frequency}</span>
+              {p.source ? (
+                <a className="frequency" href={p.source} target="_blank" rel="noopener noreferrer">
+                  source
+                </a>
+              ) : null}
             </div>
           ))}
         </div>
