@@ -29,9 +29,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# internal planning docs (not for repo)
-plan.md
-RESEARCH_PLAN.md
+# markdown: ship README only
+*.md
+!README.md
 
 # vercel
 .vercel

@@ -19,6 +19,15 @@ Without either key, `lib/research/search.ts` falls back to hardcoded mock data t
 
 The cascade is: Exa → Tavily → mock. Provider failures are collected and returned alongside results rather than thrown.
 
+## Page scrape (optional)
+
+After competitor URLs are found, the pricing agent scrapes `/pricing` pages via Firecrawl (JS-rendered markdown). No key is required ([keyless scrape](https://docs.firecrawl.dev/features/scrape)); a key only raises rate limits. Failures are ignored and the agent falls back to search snippets.
+
+| Variable | Purpose |
+| --- | --- |
+| `FIRECRAWL_API_KEY` | Optional. `Authorization: Bearer` on scrape requests. |
+| `FIRECRAWL_DISABLED` | Set to `1` to skip scrape (search snippets only). |
+
 ## Model overrides (optional)
 
 | Variable | Default | Used for |

@@ -17,6 +17,8 @@ A single Next.js 14 app running on the App Router. One API route does everything
 │  │                                       │                  │
 │  │  Search: Exa → Tavily → mock          │                  │
 │  │  (15s timeout per query)              │                  │
+│  │  Pricing: Firecrawl scrape /pricing   │                  │
+│  │  (keyless REST; optional API key)     │                  │
 │  │                                       │                  │
 │  │  Phase 1 (parallel):                  │                  │
 │  │    competitors ──┐                    │                  │
