@@ -25,7 +25,20 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Debrief — AI startup validation in 60 seconds",
-  description: "One prompt. Full startup briefing — competitors, pricing, funding, gaps, positioning, launch plan — plus a ship/pivot/kill verdict from seven skeptical experts.",
+  description:
+    "One prompt. Full startup briefing — competitors, pricing, funding, gaps, positioning, launch plan — plus a ship/pivot/kill verdict from seven skeptical experts.",
+  openGraph: {
+    title: "Debrief — AI startup validation in 60 seconds",
+    description:
+      "Live-web dossier plus a ship, pivot, or kill verdict. Not financial advice.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Debrief — AI startup validation in 60 seconds",
+    description:
+      "Live-web dossier plus a ship, pivot, or kill verdict. Not financial advice.",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

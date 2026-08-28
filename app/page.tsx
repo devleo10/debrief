@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import AgentOrb from "@/components/AgentOrb";
 import ScrollReveal from "@/components/ScrollReveal";
-import "./landing.css";
+import LegalFooter from "@/components/LegalFooter";
 
 
 
@@ -163,9 +163,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="landing-footer">
-        Debrief — market intel + honest verdict. Not financial advice.
-      </footer>
+      <LegalFooter className="landing-footer" />
     </div>
   );
 }
