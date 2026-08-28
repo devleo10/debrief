@@ -18,7 +18,7 @@ describe("buildReportMarkdown", () => {
       verdict: "PIVOT",
       scores: { ...emptyScores(), overall: 5 },
     });
-    expect(md).toContain("# Brutal Idea Validator — Test idea");
+    expect(md).toContain("# Debrief — Test idea");
     expect(md).toContain("**PIVOT**");
     expect(md).toContain("- overall: 5/10");
     expect(md).toContain("_Validated 2026-08-26_");
