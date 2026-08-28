@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { runResearch } from "@/lib/research/orchestrator";
-import { createRateLimiter } from "@/lib/rateLimit";
+import { admitRequest } from "@/lib/rateLimit";
+import { liveSearchConfigured } from "@/lib/searchConfig";
 import { buildDossierForAgents } from "@/lib/dossier";
 import { vcPrompt } from "@/lib/agents/vc";
 import { engineerPrompt } from "@/lib/agents/engineer";
@@ -21,6 +22,8 @@ import { extractVerdict, verdictFromScore } from "@/lib/extractVerdict";
 import type { AgentResult, AgentScores, ValidateResponse } from "@/lib/types";
 import type { ResearchInput } from "@/lib/research/types";
 
+export const maxDuration = 300;
+
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 const REPAIR_MODEL = process.env.OPENAI_REPAIR_MODEL || "gpt-4o-mini";
 const AGENT_TIMEOUT_MS = 60_000;
@@ -32,12 +35,6 @@ const openai = new OpenAI({
   timeout: AGENT_TIMEOUT_MS,
   maxRetries: 2,
 });
-
-// --- Rate limiting ---
-
-const rateLimiter = createRateLimiter(60_000, 5);
-
-// --- Validation agents ---
 
 type AgentSpec = {
   name: string;
@@ -198,15 +195,32 @@ async function runSynthesis(
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const format = url.searchParams.get("format");
+  const skipCache = url.searchParams.get("fresh") === "1";
 
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0] ||
     req.headers.get("x-real-ip") ||
     "unknown";
 
-  if (!rateLimiter.check(ip)) {
+  const admitted = await admitRequest(ip);
+  if (admitted === "misconfigured") {
+    return Response.json(
+      {
+        error:
+          "Production rate limits need Upstash Redis (UPSTASH_REDIS_REST_URL + TOKEN), or set ALLOW_INMEMORY_LIMITS=1.",
+      },
+      { status: 500 },
+    );
+  }
+  if (admitted === "burst") {
     return Response.json(
       { error: "Rate limit exceeded. Try again in 1 minute." },
+      { status: 429 },
+    );
+  }
+  if (admitted === "daily") {
+    return Response.json(
+      { error: "Daily briefing quota reached. Try again tomorrow." },
       { status: 429 },
     );
   }
@@ -214,6 +228,20 @@ export async function POST(req: Request) {
   if (!process.env.OPENAI_API_KEY) {
     return Response.json(
       { error: "Server is missing OPENAI_API_KEY" },
+      { status: 500 },
+    );
+  }
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_MOCK_SEARCH !== "1" &&
+    !liveSearchConfigured()
+  ) {
+    return Response.json(
+      {
+        error:
+          "Production requires EXA_API_KEY or TAVILY_API_KEY so reports are not mock data.",
+      },
       { status: 500 },
     );
   }
@@ -251,7 +279,7 @@ export async function POST(req: Request) {
 
   const sanitize = (s: string) =>
     s
-      .replace(/[^\w\s.,!?;:'"()-]/g, "")
+      .replace(/[^\p{L}\p{N}\s.,!?;:'"()-]/gu, "")
       .trim()
       .slice(0, 2000);
 
@@ -294,6 +322,7 @@ export async function POST(req: Request) {
         researchInput,
         (e) => researchEvents.push(e),
         req.signal,
+        { skipCache },
       );
       const agentResults = await runAgents(
         `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
@@ -345,6 +374,7 @@ export async function POST(req: Request) {
           researchInput,
           enqueue,
           abortController.signal,
+          { skipCache },
         );
         const abortPromise = new Promise<never>((_, reject) => {
           abortController.signal.addEventListener("abort", () => {
