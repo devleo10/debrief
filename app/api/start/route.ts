@@ -218,9 +218,12 @@ export async function POST(req: Request) {
       { status: 429 },
     );
   }
-  if (admitted === "daily") {
+  if (admitted === "quota") {
     return Response.json(
-      { error: "Daily briefing quota reached. Try again tomorrow." },
+      {
+        error:
+          "You've used both free briefings on this network. Paid plans are coming.",
+      },
       { status: 429 },
     );
   }

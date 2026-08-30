@@ -30,14 +30,16 @@ async function command(args: (string | number)[]): Promise<unknown> {
   }
 }
 
-/** INCR key; set TTL on first hit. Returns the new count, or null if Redis is down. */
+/** INCR key. If ttlSeconds is set, apply it on first hit. Returns count, or null if Redis is down. */
 export async function redisIncr(
   key: string,
-  ttlSeconds: number,
+  ttlSeconds?: number,
 ): Promise<number | null> {
   const n = await command(["INCR", key]);
   if (typeof n !== "number") return null;
-  if (n === 1) await command(["EXPIRE", key, ttlSeconds]);
+  if (n === 1 && ttlSeconds && ttlSeconds > 0) {
+    await command(["EXPIRE", key, ttlSeconds]);
+  }
   return n;
 }
 

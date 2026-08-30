@@ -46,4 +46,14 @@ describe("admitRequest", () => {
     vi.stubEnv("ALLOW_INMEMORY_LIMITS", "");
     expect(await admitRequest("1.1.1.1")).toBe("misconfigured");
   });
+
+  it("allows two free runs per IP then blocks", async () => {
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    const ip = `free-tier-${Math.random().toString(36).slice(2)}`;
+    expect(await admitRequest(ip)).toBe("ok");
+    expect(await admitRequest(ip)).toBe("ok");
+    expect(await admitRequest(ip)).toBe("quota");
+  });
 });

@@ -56,7 +56,7 @@ export default function LandingPage() {
               </Link>
             </div>
             <div className="landing-proof hero-in hero-d5">
-              <span><CheckCircle2 size={14} /> No account</span>
+              <span><CheckCircle2 size={14} /> 2 free briefings</span>
               <span><CheckCircle2 size={14} /> Web research</span>
               <span><CheckCircle2 size={14} /> Evidence + critique</span>
             </div>

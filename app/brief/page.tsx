@@ -757,7 +757,7 @@ function BriefPage() {
                   </div>
 
                   <div className="submit-meta">
-                    No account · usually under a minute
+                    2 free briefings per network · usually under a minute
                   </div>
                 </div>
               </div>

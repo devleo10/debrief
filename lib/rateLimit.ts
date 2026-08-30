@@ -41,16 +41,23 @@ export function createRateLimiter(
 
 const BURST_MAX = 5;
 const BURST_WINDOW_S = 60;
-const DAILY_MAX = 15;
-const DAILY_WINDOW_S = 86_400;
+/** Free tier: two briefings per IP. Redis keeps this across deploys. */
+export const FREE_RUNS_PER_IP = 2;
 
 const burstMemory = createRateLimiter(BURST_WINDOW_S * 1000, BURST_MAX);
-const dailyMemory = createRateLimiter(DAILY_WINDOW_S * 1000, DAILY_MAX);
+const freeMemory = new Map<string, number>();
 
-export type AdmitResult = "ok" | "burst" | "daily" | "misconfigured";
+export type AdmitResult = "ok" | "burst" | "quota" | "misconfigured";
+
+function takeFreeSlot(ip: string): boolean {
+  const used = freeMemory.get(ip) || 0;
+  if (used >= FREE_RUNS_PER_IP) return false;
+  freeMemory.set(ip, used + 1);
+  return true;
+}
 
 /**
- * Burst (5/min) + daily (15/day) per IP.
+ * Burst (5/min) + two free briefings per IP.
  * On Vercel, Redis is required unless ALLOW_INMEMORY_LIMITS=1.
  */
 export async function admitRequest(ip: string): Promise<AdmitResult> {
@@ -66,12 +73,12 @@ export async function admitRequest(ip: string): Promise<AdmitResult> {
   if (redisConfigured()) {
     const burst = await redisIncr(`rl:min:${ip}`, BURST_WINDOW_S);
     if (burst !== null && burst > BURST_MAX) return "burst";
-    const day = await redisIncr(`rl:day:${ip}`, DAILY_WINDOW_S);
-    if (day !== null && day > DAILY_MAX) return "daily";
-    if (burst !== null && day !== null) return "ok";
+    const used = await redisIncr(`rl:free:${ip}`);
+    if (used !== null && used > FREE_RUNS_PER_IP) return "quota";
+    if (burst !== null && used !== null) return "ok";
   }
 
   if (!burstMemory.check(ip)) return "burst";
-  if (!dailyMemory.check(ip)) return "daily";
+  if (!takeFreeSlot(ip)) return "quota";
   return "ok";
 }
