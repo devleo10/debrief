@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Outfit, JetBrains_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Outfit, JetBrains_Mono, Fraunces } from "next/font/google";
+import Providers from "@/components/Providers";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -7,6 +8,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
   weight: ["300", "400", "500", "600", "700", "800"],
   display: "swap",
+  adjustFontFallback: false,
 });
 
 const outfit = Outfit({
@@ -14,6 +16,7 @@ const outfit = Outfit({
   variable: "--font-display",
   weight: ["400", "500", "600", "700", "800"],
   display: "swap",
+  adjustFontFallback: false,
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -21,6 +24,16 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
   weight: ["300", "400", "500", "600"],
   display: "swap",
+  adjustFontFallback: false,
+});
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-serif",
+  style: ["normal", "italic"],
+  axes: ["SOFT", "WONK", "opsz"],
+  display: "swap",
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {
@@ -43,8 +56,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${plusJakartaSans.variable} ${outfit.variable} ${jetbrainsMono.variable}`}>
-      <body>{children}</body>
+    <html lang="en" className={`${plusJakartaSans.variable} ${outfit.variable} ${jetbrainsMono.variable} ${fraunces.variable}`}>
+      <body className={plusJakartaSans.className}>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

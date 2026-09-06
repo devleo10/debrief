@@ -6,17 +6,18 @@ export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy">
       <p>
-        Debrief runs a briefing from the idea text you submit. We send that text
-        to model and search providers (OpenAI, and if configured Exa, Tavily,
-        Firecrawl) to produce the report. We do not sell your ideas.
+        Debrief stores a lightweight session in your browser: the email you
+        enter, remaining briefing credits, and past verdicts (localStorage).
+        This is not a server account, and we do not verify the email.
       </p>
       <p>
-        Briefing history is stored in your browser (localStorage), not in our
-        database, unless you later enable accounts. Server logs may include IP
-        addresses used for rate limits.
+        When you run a briefing, we send the idea text to model and search
+        providers (OpenAI, and if configured SerpApi, Exa, Tavily, Firecrawl)
+        to produce the report. We do not sell your ideas.
       </p>
       <p>
-        Do not submit secrets, personal data about other people, or confidential
+        Server logs may include IP addresses used for rate limits. Do not
+        submit secrets, personal data about other people, or confidential
         third-party material.
       </p>
     </LegalPage>
