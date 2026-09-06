@@ -1,169 +1,200 @@
 import Link from "next/link";
+import LegalFooter from "@/components/LegalFooter";
+import HelmetHero from "@/components/HelmetHero";
+import IdeaComposer from "@/components/IdeaComposer";
+import AccountMenu from "@/components/AccountMenu";
 import {
   ArrowRight,
   BarChart3,
+  Briefcase,
   CheckCircle2,
-  Gavel,
-  MessageSquareText,
+  Code2,
+  FileText,
   Search,
   ShieldAlert,
-  Sparkles,
   Users,
-  Zap,
 } from "lucide-react";
-import AgentOrb from "@/components/AgentOrb";
-import ScrollReveal from "@/components/ScrollReveal";
-import LegalFooter from "@/components/LegalFooter";
+import "./demo.css";
 
+const STEPS = [
+  {
+    n: "01",
+    title: "Research",
+    line: "Live market scan — competitors, pricing, and demand signals.",
+  },
+  {
+    n: "02",
+    title: "Challenge",
+    line: "Seven specialists take the idea apart, in parallel.",
+  },
+  {
+    n: "03",
+    title: "Perspective",
+    line: "They are not allowed to agree. Tension is the point.",
+  },
+  {
+    n: "04",
+    title: "Synthesize",
+    line: "One judge. Ship, pivot, or kill — with a score.",
+  },
+];
 
+const NAV = [
+  { href: "#how", label: "The method" },
+  { href: "#panel", label: "The room" },
+  { href: "#examples", label: "The wreck" },
+];
 
+const SIDE = [
+  { icon: FileText, label: "Idea", on: true },
+  { icon: Users, label: "Panel" },
+  { icon: Search, label: "Research" },
+  { icon: BarChart3, label: "Analysis" },
+  { icon: CheckCircle2, label: "Verdict" },
+];
+
+const AGENTS = [
+  {
+    icon: Briefcase,
+    name: "VC Investor",
+    line: "Reading the dossier against a fundable market..",
+  },
+  {
+    icon: Code2,
+    name: "Senior Engineer",
+    line: "Counting the APIs, data, and failure modes..",
+  },
+  {
+    icon: ShieldAlert,
+    name: "Devil's Advocate",
+    line: "Looking for the reason not to build this..",
+  },
+];
 
 export default function LandingPage() {
   return (
-    <div className="landing">
-      <ScrollReveal />
-      <nav className="landing-nav">
-        <Link href="/" className="landing-wordmark">
+    <div className="dx">
+      <header className="app-nav">
+        <Link href="/" className="wordmark">
           DEBRIEF
         </Link>
-        <div className="landing-nav-links">
-          <a href="#dossier">Dossier</a>
-          <a href="#verdict">Verdict</a>
-          <Link href="/brief" className="landing-nav-cta">Run briefing</Link>
+        <nav>
+          {NAV.map((n) => (
+            <a key={n.href} href={n.href}>
+              {n.label}
+            </a>
+          ))}
+        </nav>
+        <div className="topnav-actions">
+          <AccountMenu />
         </div>
-      </nav>
+      </header>
 
       <main>
-        <section className="landing-hero">
-          <div className="landing-hero-copy">
-            <div className="landing-eyebrow hero-in hero-d1">
-              <Sparkles size={14} /> Research-first startup validation
-            </div>
-            <h1 className="landing-title hero-in hero-d2">
-              A <span className="title-grad">market briefing</span> before you
-              waste months building.
+        <section className="dx-hero">
+          <div className="dx-copy">
+            <p className="dx-kicker">Seven AI agents · one verdict</p>
+            <h1>
+              Every reason
+              <br />
+              your idea <em>fails,</em>
+              <br />
+              out loud.
             </h1>
-            <p className="landing-sub hero-in hero-d3">
-              Debrief turns a messy idea into a researched dossier, a seven-agent critique,
-              and a verdict you can act on: ship, pivot, or kill.
+            <p className="dx-sub">
+              Paste a startup idea. Seven agents research the live market and
+              take turns tearing it apart. A synthesizer is forced to pick a
+              side.
             </p>
-            <div className="landing-actions hero-in hero-d4">
-              <Link href="/brief" className="landing-primary">
-                Start with one sentence <ArrowRight size={16} />
-              </Link>
-              <Link href="/brief?mode=detailed" className="landing-secondary">
-                Use detailed brief
-              </Link>
-            </div>
-            <div className="landing-proof hero-in hero-d5">
-              <span><CheckCircle2 size={14} /> 2 free briefings</span>
-              <span><CheckCircle2 size={14} /> Web research</span>
-              <span><CheckCircle2 size={14} /> Evidence + critique</span>
-            </div>
-            <div className="landing-stats hero-in hero-d6" aria-label="Product stats">
-              <div><strong>7</strong><span>market scans</span></div>
-              <div><strong>7</strong><span>expert critiques</span></div>
-              <div><strong>~60s</strong><span>typical runtime</span></div>
-            </div>
+            <IdeaComposer />
+            <p className="dx-note">
+              Type the idea. Continue with email on this device. Two free
+              briefings.
+            </p>
+            <p className="dx-after">
+              Nothing charges. Credits stay in this browser.
+            </p>
           </div>
 
-          <AgentOrb />
-        </section>
-
-        <section className="landing-band">
-          <div className="band-item" data-reveal="1">
-            <div className="band-icon"><BarChart3 size={18} /></div>
-            <strong>Market reality</strong>
-            <span>Competitors, pricing, funding signals, and market gaps in one dossier.</span>
-          </div>
-          <div className="band-item" data-reveal="2">
-            <div className="band-icon"><Users size={18} /></div>
-            <strong>Multiple judges</strong>
-            <span>VC, engineer, PM, UX, user, indie hacker, and devil&apos;s advocate.</span>
-          </div>
-          <div className="band-item" data-reveal="3">
-            <div className="band-icon"><ShieldAlert size={18} /></div>
-            <strong>Kill-shot clarity</strong>
-            <span>The report names what breaks the idea and what insight is still worth keeping.</span>
+          <div className="dx-stage" aria-hidden>
+            <p className="dx-hud">
+              <i />
+              On deck
+            </p>
+            <HelmetHero />
           </div>
         </section>
 
-        <section className="landing-signal-strip" aria-hidden="true">
-          <div className="signal-track">
-            {[...Array(2)].map((_, i) => (
-              <span key={i}>
-                <Zap size={12} /> Competitor scan · <Zap size={12} /> Pricing pull · <Zap size={12} /> Funding map · <Zap size={12} /> Gap analysis · <Zap size={12} /> VC critique · <Zap size={12} /> Devil&apos;s advocate ·
+        <section className="dx-how" id="how">
+          <p className="dx-kicker">The system</p>
+          <h2>Four moves. Then a decision.</h2>
+          <ol className="dx-steps">
+            {STEPS.map((s) => (
+              <li key={s.n}>
+                <span>{s.n}</span>
+                <strong>{s.title}</strong>
+                <p>{s.line}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="dx-board" id="panel">
+          <aside>
+            {SIDE.map(({ icon: Icon, label, on }) => (
+              <span key={label} className={on ? "on" : ""}>
+                <Icon size={14} />
+                {label}
               </span>
             ))}
-          </div>
-        </section>
+          </aside>
 
-        <section className="landing-section">
-          <div className="section-copy" data-reveal="1">
-            <div className="landing-section-title">WHAT CHANGES</div>
-            <h2>It does not validate your ego. It validates the workflow.</h2>
-            <p>
-              The output separates evidence from opinion: what the market already has, where users
-              still complain, how hard it is to build, and whether distribution has a believable path.
-            </p>
-          </div>
-          <div className="workflow-grid">
-            <div className="workflow-card" data-reveal="1">
-              <div className="workflow-step">01</div>
-              <MessageSquareText size={18} />
-              <span>Input</span>
-              <strong>Messy founder idea</strong>
-              <p>Voice or text is cleaned into a sharper research brief before agents judge it.</p>
-            </div>
-            <div className="workflow-card" data-reveal="2">
-              <div className="workflow-step">02</div>
-              <Search size={18} />
-              <span>Act 1</span>
-              <strong>Dossier</strong>
-              <p>Relevant competitors, pricing, pain points, communities, and launch channels.</p>
-            </div>
-            <div className="workflow-card" data-reveal="3">
-              <div className="workflow-step">03</div>
-              <Gavel size={18} />
-              <span>Act 2</span>
-              <strong>Verdict</strong>
-              <p>Scored critique and one concrete next move: build, reposition, or stop.</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-compare">
-          <div>
-            <div className="landing-section-title">WHY IT FEELS DIFFERENT</div>
-            <h2>Less generic advice. More falsifiable claims.</h2>
-          </div>
-          <div className="compare-columns">
-            <div className="compare-box muted" data-reveal="1">
-              <span>Generic AI answer</span>
-              <p>“Great idea. Talk to users, think about your moat, and refine go-to-market.”</p>
-            </div>
-            <div className="compare-box strong" data-reveal="2">
-              <span>Debrief answer</span>
+          <div className="dx-board-main" id="examples">
+            <header>
+              <h2>Stripe-style API for carbon-offset audits</h2>
               <p>
-                “Your buyer already has async standup bots. Pivot to incident-heavy support teams
-                or kill the generic Slack-summary angle.”
+                <i />
+                Live briefing
               </p>
-            </div>
+            </header>
+
+            <ul className="dx-agents">
+              {AGENTS.map((a) => (
+                <li key={a.name}>
+                  <a.icon size={16} />
+                  <strong>{a.name}</strong>
+                  <span>{a.line}</span>
+                </li>
+              ))}
+              <li className="more">
+                <b>···</b>
+                <strong>+4 more agents</strong>
+                <span>Indie, PM, UX, user</span>
+              </li>
+            </ul>
+
+            <div className="dx-clock">2:34</div>
+
+            <footer>
+              <span>
+                <i />
+                Live reasoning
+              </span>
+              <span>Show all</span>
+            </footer>
           </div>
         </section>
 
-        <section className="landing-cta-block" data-reveal="1">
-          <div>
-            <div className="landing-section-title">START WITH THE ROUGH VERSION</div>
-            <h2>Drop the idea as-is. The first job is making it testable.</h2>
-          </div>
-          <Link href="/brief" className="landing-primary">
-            Run your briefing <ArrowRight size={16} />
+        <section className="dx-close">
+          <h2>If it can survive this room, it can survive a customer.</h2>
+          <Link href="/brief" className="dx-cta">
+            Run a briefing
+            <ArrowRight size={16} />
           </Link>
         </section>
       </main>
 
-      <LegalFooter className="landing-footer" />
+      <LegalFooter className="footer" />
     </div>
   );
 }
