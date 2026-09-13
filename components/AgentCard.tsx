@@ -1,6 +1,8 @@
 import type { AgentResult } from "@/lib/types";
 import { agentMetaMap } from "@/lib/agentMeta";
 import { stripStructuredBlocks } from "@/lib/extractScores";
+import { previewLine } from "@/lib/parseReadout";
+import Prose from "@/components/Prose";
 import { Bot } from "lucide-react";
 
 export default function AgentCard({
@@ -37,6 +39,8 @@ export default function AgentCard({
   const isDevil = meta.isDevil;
   const chips = Object.entries(result.scores).filter(([, v]) => v !== null);
   const overall = result.scores.overall;
+  const prose = result.error ? result.output : stripStructuredBlocks(result.output);
+  const teaser = !result.error ? previewLine(prose) : "";
 
   return (
     <div className={`agent-card${isDevil ? " devil" : ""}${result.error ? " errored" : ""}`}>
@@ -47,6 +51,7 @@ export default function AgentCard({
           ? <span className="agent-score-badge failed">failed</span>
           : overall !== null && <span className="agent-score-badge" style={{ color: meta.color, borderColor: meta.color }}>{overall}/10</span>}
         <span className="agent-chevron">{collapsed ? "+" : "−"}</span>
+        {collapsed && teaser ? <span className="agent-preview">{teaser}</span> : null}
       </button>
 
       {!collapsed && (
@@ -60,9 +65,7 @@ export default function AgentCard({
               ))}
             </div>
           )}
-          <div className={`agent-output${isDevil ? " devil" : ""}`}>
-            {result.error ? result.output : stripStructuredBlocks(result.output)}
-          </div>
+          <Prose className={`agent-output${isDevil ? " devil" : ""}`} text={prose} />
         </div>
       )}
     </div>

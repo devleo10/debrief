@@ -5,6 +5,7 @@ import { extractVerdict } from "@/lib/extractVerdict";
 import { prependHistory } from "@/lib/historyStorage";
 import type { AgentResult, SynthesisResult, HistoryEntry, IdeaInput } from "@/lib/types";
 import type { Competitor, Positioning, LaunchStrategy, SourceLink, ResearchResult } from "@/lib/research/types";
+import type { RunIntegrity } from "@/lib/runIntegrity";
 
 export type ResearchAgentStatus = {
   agent: string;
@@ -37,6 +38,7 @@ export type BriefRun = {
   sources: SourceLink[];
   processingTime: string | null;
   brief: NonNullable<ResearchResult["brief"]> | null;
+  integrity: RunIntegrity | null;
 
   setLoading: (v: boolean) => void;
   setError: (v: string | null) => void;
@@ -56,7 +58,8 @@ export type BriefRun = {
  */
 export function useBriefRun(
   onHistory: (entry: HistoryEntry) => void,
-  onRunStart?: (idea: IdeaInput) => void
+  onRunStart?: (idea: IdeaInput) => void,
+  onFailure?: () => void,
 ): BriefRun {
   const [loading, setLoading] = useState(false);
   const [cancelled, setCancelled] = useState(false);
@@ -78,8 +81,12 @@ export function useBriefRun(
   const [brief, setBrief] = useState<NonNullable<ResearchResult["brief"]> | null>(
     null,
   );
+  const [integrity, setIntegrity] = useState<RunIntegrity | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
+  const onFailureRef = useRef(onFailure);
+  onFailureRef.current = onFailure;
 
   const reset = useCallback(() => {
     setCompetitors([]);
@@ -92,6 +99,7 @@ export function useBriefRun(
     setSources([]);
     setProcessingTime(null);
     setBrief(null);
+    setIntegrity(null);
     setResearchAgents([]);
     setAgentResults({});
     setSynthesis(null);
@@ -113,7 +121,6 @@ export function useBriefRun(
   const handleEvent = useCallback((data: any) => {
     if (!data || typeof data !== "object") return;
 
-    // Research events
     if (data.type === "status" && data.agent && data.status) {
       setResearchAgents((prev) => {
         const existing = prev.find((a: ResearchAgentStatus) => a.agent === data.agent);
@@ -142,6 +149,13 @@ export function useBriefRun(
       setPositioning(data.data);
     } else if (data.type === "launch" && data.data) {
       setLaunch(data.data);
+    } else if (data.type === "integrity") {
+      setIntegrity({
+        type: "integrity",
+        fallback: Boolean(data.fallback),
+        sources: Number(data.sources) || 0,
+        agentFailures: Number(data.agentFailures) || 0,
+      });
     }
     // Validation events
     else if (data.agent && data.output !== undefined && data.scores) {
@@ -160,11 +174,15 @@ export function useBriefRun(
   }, []);
 
   const run = useCallback(async (idea: IdeaInput) => {
-    onRunStart?.(idea);
+    abortRef.current?.abort();
+    const runId = ++runIdRef.current;
+    const stillThisRun = () => runIdRef.current === runId;
+
+    reset();
     setLoading(true);
     setCancelled(false);
     setError(null);
-    reset();
+    onRunStart?.(idea);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -191,22 +209,20 @@ export function useBriefRun(
       let buffer = "";
 
       while (true) {
+        if (!stillThisRun()) return;
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
-        let currentEvent = "";
         for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith("data: ")) {
+          if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
+              if (!stillThisRun()) return;
               handleEvent(data);
 
-              // Track local state for history
               if (data.agent && data.output !== undefined && data.scores) {
                 localAgents[data.agent] = data;
               } else if (data.output !== undefined && data.scores && !data.agent) {
@@ -219,20 +235,29 @@ export function useBriefRun(
         }
       }
 
+      if (!stillThisRun()) return;
       setLoading(false);
-      if (localSynth) saveToHistory(idea, Object.values(localAgents), localSynth);
+      if (localSynth) {
+        saveToHistory(idea, Object.values(localAgents), localSynth);
+      } else {
+        onFailureRef.current?.();
+      }
     } catch (err: any) {
+      if (!stillThisRun()) return;
       if (err.name !== "AbortError") {
         setError(err.message || "Something went wrong");
+        onFailureRef.current?.();
       }
       setLoading(false);
     }
   }, [handleEvent, saveToHistory, reset, onRunStart]);
 
   const cancel = useCallback(() => {
+    runIdRef.current += 1;
     abortRef.current?.abort();
     setCancelled(true);
     setLoading(false);
+    onFailureRef.current?.();
   }, []);
 
   return {
@@ -252,6 +277,7 @@ export function useBriefRun(
     sources,
     processingTime,
     brief,
+    integrity,
     setLoading,
     setError,
     setCancelled,

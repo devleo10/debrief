@@ -44,6 +44,19 @@ import VerdictBanner from "@/components/VerdictBanner";
 import HistoryPanel from "@/components/HistoryPanel";
 import { ReportErrorBoundary } from "@/components/ReportErrorBoundary";
 import LegalFooter from "@/components/LegalFooter";
+import AccountMenu from "@/components/AccountMenu";
+import { useAuth, writePendingIdea } from "@/lib/auth/AuthProvider";
+import { fillFormFromQuick } from "@/lib/ideaDraft";
+import {
+  integritySummary,
+  isDegradedRun,
+} from "@/lib/runIntegrity";
+import {
+  parseReadout,
+  readoutSection,
+  splitCriteria,
+} from "@/lib/parseReadout";
+import Prose from "@/components/Prose";
 import { useBriefRun, type ResearchAgentStatus } from "./useBriefRun";
 import {
   CompetitorsSection,
@@ -202,24 +215,18 @@ const initialState = {
 };
 
 const QUICK_EXAMPLES = [
-  "AI calendar for freelance designers that reads client emails and turns project deadlines into calendar blocks",
-  "Cross-border payment API for African SaaS companies selling to US customers",
-  "Contract review workspace for small law firms that summarizes risk and drafts client-ready revisions",
-];
-
-const QUICK_PROMPTS = [
-  "Who is it for?",
-  "What painful workflow changes?",
-  "How will you reach the first users?",
-];
-
-const READOUT_LABELS = [
-  "CONSENSUS",
-  "TENSION",
-  "DIFFERENTIATION & CREDIBILITY",
-  "KILL SHOT REVIEW",
-  "VERDICT",
-  "NEXT MOVE",
+  {
+    label: "AI calendar for designers",
+    text: "AI calendar for freelance designers that reads client emails and turns project deadlines into calendar blocks",
+  },
+  {
+    label: "Cross-border payments API",
+    text: "Cross-border payment API for African SaaS companies selling to US customers",
+  },
+  {
+    label: "Contract review for law firms",
+    text: "Contract review workspace for small law firms that summarizes risk and drafts client-ready revisions",
+  },
 ];
 
 const FULL_EXAMPLES: IdeaInput[] = [
@@ -282,6 +289,34 @@ function getIdea(state: typeof initialState): IdeaInput {
   return idea as unknown as IdeaInput;
 }
 
+function ideaFromQuick(quick: string): IdeaInput {
+  const filled = fillFormFromQuick(
+    { title: "", description: "" },
+    quick,
+  );
+  return { title: filled.title, description: filled.description } as IdeaInput;
+}
+
+function OutOfCreditsBanner() {
+  const support = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
+  return (
+    <div className="error-banner" role="alert">
+      <span>
+        No briefings left on this device.
+        {support ? (
+          <>
+            {" "}
+            Email <a href={`mailto:${support}`}>{support}</a> if you need more
+            — we are not selling credits yet.
+          </>
+        ) : (
+          <> We are not selling credits yet.</>
+        )}
+      </span>
+    </div>
+  );
+}
+
 // --- Page ---
 
 export default function Page() {
@@ -289,6 +324,9 @@ export default function Page() {
     <Suspense
       fallback={
         <div className="app">
+          <nav className="app-nav">
+            <Link href="/" className="wordmark">DEBRIEF</Link>
+          </nav>
           <main className="form-page">
             <p className="brief-form-sub">Loading...</p>
           </main>
@@ -302,19 +340,34 @@ export default function Page() {
 
 function BriefPage() {
   const searchParams = useSearchParams();
+  const { user, openAuth, spend, refund } = useAuth();
+  const spentRef = useRef(false);
+  const refundRef = useRef(refund);
+  refundRef.current = refund;
+
+  const giveBackCredit = useCallback(() => {
+    if (!spentRef.current) return;
+    spentRef.current = false;
+    refundRef.current();
+  }, []);
 
   // Input state
   const [phase, setPhase] = useState<Phase>("form");
   const [mode, setMode] = useState<InputMode>(
     searchParams.get("mode") === "detailed" ? "detailed" : "quick",
   );
-  const [quickInput, setQuickInput] = useState("");
-  const [form, setForm] = useState(initialState);
+  const [quickInput, setQuickInput] = useState(
+    () => searchParams.get("idea") || "",
+  );
+  const [form, setForm] = useState(() =>
+    fillFormFromQuick(initialState, searchParams.get("idea") || ""),
+  );
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [showDetails, setShowDetails] = useState(
     searchParams.get("mode") === "detailed",
   );
   const [lastIdea, setLastIdea] = useState<IdeaInput | null>(null);
+  const [outOfCredits, setOutOfCredits] = useState(false);
 
   // Voice — shared Web Speech hook; onText composes into the quick input.
   const voiceRaw = useSpeechInput();
@@ -330,7 +383,8 @@ function BriefPage() {
 
   // Loading state
   const [pitchIndex, setPitchIndex] = useState(0);
-  const [dossierExpanded, setDossierExpanded] = useState(true);
+  const [elapsed, setElapsed] = useState(0);
+  const [dossierExpanded, setDossierExpanded] = useState(false);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
@@ -339,7 +393,10 @@ function BriefPage() {
     useCallback((entry: HistoryEntry) => {
       setHistory((prev) => prependHistory(entry, prev));
     }, []),
-    useCallback((idea: IdeaInput) => setLastIdea(idea), []),
+    useCallback((idea: IdeaInput) => {
+      setLastIdea(idea);
+    }, []),
+    giveBackCredit,
   );
   const {
     loading,
@@ -358,6 +415,7 @@ function BriefPage() {
     sources,
     processingTime,
     brief,
+    integrity,
     setLoading,
     setError,
     setCancelled,
@@ -372,6 +430,12 @@ function BriefPage() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!loading && synthesis && !error) {
+      spentRef.current = false;
+    }
+  }, [loading, synthesis, error]);
 
   const setField = useCallback(
     (key: keyof typeof initialState) => (value: string) =>
@@ -391,6 +455,18 @@ function BriefPage() {
     return () => clearInterval(id);
   }, [loading]);
 
+  useEffect(() => {
+    if (!loading) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 250);
+    return () => clearInterval(id);
+  }, [loading]);
+
   const hasResults = competitors.length > 0 || !!synthesis;
   const filledContext = OPTIONAL_KEYS.filter((k) => form[k].trim()).length;
   const dossierTotal = Object.keys(RESEARCH_AGENTS).length;
@@ -401,10 +477,31 @@ function BriefPage() {
   const loadingPitch = dossierComplete
     ? ROOM_PITCHES[pitchIndex % ROOM_PITCHES.length]
     : DOSSIER_PITCHES[pitchIndex % DOSSIER_PITCHES.length];
+  const activeScan = researchAgents.find(
+    (a) =>
+      a.status !== "pending" && a.status !== "done" && a.status !== "error",
+  );
+  const workingLabel = !dossierComplete
+    ? activeScan
+      ? `${RESEARCH_AGENTS[activeScan.agent]?.label ?? activeScan.agent} · ${activeScan.status}`
+      : researchDone === 0
+        ? "Opening the live market scan"
+        : `${researchDone}/${dossierTotal} scans complete`
+    : validateDone < roomTotal
+      ? `${validateDone}/${roomTotal} experts reporting`
+      : "Forcing a verdict";
+  const elapsedClock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+  const overallPct = Math.round(
+    ((researchDone + validateDone) / (dossierTotal + roomTotal)) * 100,
+  );
 
   useEffect(() => {
     setPitchIndex(0);
   }, [dossierComplete]);
+
+  useEffect(() => {
+    if (sources.length > 0) setDossierExpanded(true);
+  }, [sources.length]);
 
   // Escape cancels a running briefing
   useEffect(() => {
@@ -416,30 +513,49 @@ function BriefPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [loading, handleCancel]);
 
-  const handleQuickSubmit = () => {
-    if (!quickInput.trim()) return;
-    const firstSentence =
-      quickInput.split(/[.!?\n]/)[0]?.trim() || quickInput.slice(0, 60).trim();
-    setForm((prev) => ({
-      ...prev,
-      title: firstSentence,
-      description: quickInput.trim(),
-    }));
-    runUnified({
-      title: firstSentence,
-      description: quickInput.trim(),
-    } as IdeaInput);
+  const beginRun = (idea: IdeaInput) => {
+    if (!user) {
+      writePendingIdea(idea.description);
+      openAuth();
+      return;
+    }
+    if (user.credits < 1) {
+      setOutOfCredits(true);
+      return;
+    }
+    try {
+      spend();
+      spentRef.current = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not start.";
+      if (/no briefings left/i.test(message)) {
+        setOutOfCredits(true);
+      } else {
+        setError(message);
+      }
+      return;
+    }
+    voice.stop();
+    setOutOfCredits(false);
+    setError(null);
+    setCancelled(false);
+    setPhase("results");
+    window.scrollTo({ top: 0, behavior: "auto" });
+    void runUnified(idea);
   };
 
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!form.title.trim() || !form.description.trim()) return;
-      voice.stop();
-      runUnified(getIdea(form));
-    },
-    [form, runUnified, voice],
-  );
+  const handleQuickSubmit = () => {
+    if (!quickInput.trim()) return;
+    const idea = ideaFromQuick(quickInput);
+    setForm((prev) => fillFormFromQuick(prev, quickInput));
+    beginRun(idea);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title.trim() || !form.description.trim()) return;
+    beginRun(getIdea(form));
+  };
 
   const handleClearHistory = () => {
     clearHistory();
@@ -454,6 +570,7 @@ function BriefPage() {
     setShowDetails(false);
     setPhase("form");
     setError(null);
+    setOutOfCredits(false);
     resetState();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -473,6 +590,7 @@ function BriefPage() {
     setMode("detailed");
     setShowDetails(true);
     setError(null);
+    setOutOfCredits(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -518,30 +636,15 @@ function BriefPage() {
       ? lastIdea.title
       : "Startup briefing");
   const ideaExcerpt = lastIdea?.description || lastIdea?.title || "";
-  const readoutSections = (() => {
-    if (!synthesisText) return [];
-    const matches = [
-      ...synthesisText.matchAll(
-        /(?:^|\n)\s*(?:\d+\.\s*)?\*?\*?([A-Z][A-Z &]+)\*?\*?\s*[—:-]\s*([\s\S]*?)(?=\n\s*(?:\d+\.\s*)?\*?\*?(?:CONSENSUS|TENSION|DIFFERENTIATION & CREDIBILITY|KILL SHOT REVIEW|VERDICT|NEXT MOVE)\*?\*?\s*[—:-]|$)/g,
-      ),
-    ];
-    return matches
-      .map((m) => ({ label: m[1].trim(), body: m[2].trim() }))
-      .filter((section) => READOUT_LABELS.includes(section.label));
-  })();
-
-  const pivotMatch = (() => {
-    if (!synthesisText || verdict !== "PIVOT") return null;
-    const lines = synthesisText.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes("pivot"))
-        return lines
-          .slice(i, i + 3)
-          .join("\n")
-          .trim();
-    }
-    return null;
-  })();
+  const readoutSections = parseReadout(synthesisText);
+  const nextMove = readoutSection(readoutSections, "NEXT MOVE");
+  const killCriteria = readoutSection(readoutSections, "KILL CRITERIA");
+  const whySections = readoutSections.filter(
+    (section) =>
+      section.label !== "VERDICT" &&
+      section.label !== "NEXT MOVE" &&
+      section.label !== "KILL CRITERIA",
+  );
 
   const handleCopy = () => {
     navigator.clipboard.writeText(
@@ -584,8 +687,7 @@ function BriefPage() {
       setQuickInput(lastIdea.description || "");
     }
     const insight =
-      pivotMatch ||
-      readoutSections.find((s) => s.label === "NEXT MOVE")?.body ||
+      nextMove ||
       synthesisText
         .split("\n")
         .find((l) => /next move|pivot/i.test(l)) ||
@@ -609,28 +711,32 @@ function BriefPage() {
   return (
     <div className="app">
       {/* ===== NAV ===== */}
-      <nav className="topnav">
+      <nav className="app-nav">
         <Link href="/" className="wordmark">
           DEBRIEF
         </Link>
-        {phase === "results" && (
-          <div className="topnav-actions">
-            <button
-              className="nav-btn"
-              onClick={handleEditIdea}
-              disabled={loading}
-            >
-              Edit idea
-            </button>
-            <button
-              className="nav-btn nav-btn-accent"
-              onClick={handleNew}
-              disabled={loading}
-            >
-              New briefing
-            </button>
-          </div>
-        )}
+        <span className="brief-nav-slot" aria-hidden />
+        <div className="topnav-actions">
+          <AccountMenu />
+          {phase === "results" && (
+            <>
+              <button
+                className="nav-btn"
+                onClick={handleEditIdea}
+                disabled={loading}
+              >
+                Edit idea
+              </button>
+              <button
+                className="nav-btn nav-btn-accent"
+                onClick={handleNew}
+                disabled={loading}
+              >
+                New briefing
+              </button>
+            </>
+          )}
+        </div>
       </nav>
 
       {/* ===== FORM PHASE ===== */}
@@ -640,27 +746,26 @@ function BriefPage() {
           {mode === "quick" && !showDetails && (
             <div className="research-quick">
               <div className="brief-form-header">
-                <div className="brief-step-kicker">Step 1 · Input</div>
-                <h1 className="brief-form-title">Your idea</h1>
+                <div className="brief-step-kicker">New briefing</div>
+                <h1 className="brief-form-title">State the idea.</h1>
                 <p className="brief-form-sub">
-                  Give us the product, customer, and painful workflow.
-                  We&apos;ll research the market, score the idea, and return a
-                  verdict you can act on.
+                  Product, customer, and the painful workflow. The panel
+                  researches the live market and returns a ship, pivot, or kill
+                  verdict.
                 </p>
               </div>
 
               <div className="briefing-console form-console">
                 <div className="console-toolbar subtle">
-                  <span className="console-status idle">NEW BRIEFING</span>
+                  <span className="console-status idle">READY</span>
                   <strong>Describe the startup</strong>
-                  <em>Act 1 + 2</em>
+                  <em>~60 seconds</em>
                 </div>
                 <div className="console-body form-console-body">
-                  <div className="quick-guidance" aria-label="What to include">
-                    {QUICK_PROMPTS.map((prompt) => (
-                      <span key={prompt}>{prompt}</span>
-                    ))}
-                  </div>
+                  <p className="quick-hint">
+                    Include who it is for, what workflow changes, and how you
+                    reach the first users.
+                  </p>
 
                   <div className="quick-input-area">
                     <div className="quick-textarea-wrap">
@@ -674,8 +779,8 @@ function BriefPage() {
                             handleQuickSubmit();
                           }
                         }}
-                        placeholder="e.g., AI calendar assistant for freelance designers that reads client emails and schedules project timelines automatically"
-                        rows={3}
+                        placeholder="AI calendar for freelance designers that reads client emails and turns deadlines into calendar blocks"
+                        rows={5}
                         aria-label="Describe your startup idea"
                       />
                       {voice.supported && (
@@ -729,13 +834,15 @@ function BriefPage() {
                       onClick={handleQuickSubmit}
                       disabled={!quickInput.trim() || loading}
                     >
-                      Run briefing <ArrowRight size={16} />
+                      {loading ? "Starting…" : "Run briefing"}
+                      <ArrowRight size={16} />
                     </button>
                   </div>
 
                   <button
                     className="toggle-mode-btn"
                     onClick={() => {
+                      setForm((prev) => fillFormFromQuick(prev, quickInput));
                       setMode("detailed");
                       setShowDetails(true);
                     }}
@@ -744,20 +851,16 @@ function BriefPage() {
                   </button>
 
                   <div className="quick-examples">
-                    <span className="examples-label">TRY:</span>
+                    <span className="examples-label">Try an example</span>
                     {QUICK_EXAMPLES.map((ex) => (
                       <button
-                        key={ex}
+                        key={ex.label}
                         className="example-btn"
-                        onClick={() => setQuickInput(ex)}
+                        onClick={() => setQuickInput(ex.text)}
                       >
-                        {ex}
+                        {ex.label}
                       </button>
                     ))}
-                  </div>
-
-                  <div className="submit-meta">
-                    2 free briefings per network · usually under a minute
                   </div>
                 </div>
               </div>
@@ -950,7 +1053,12 @@ function BriefPage() {
             </div>
           )}
 
-          {error && <div className="error-banner">{error}</div>}
+          {outOfCredits && <OutOfCreditsBanner />}
+          {error && (
+            <div className="error-banner" role="alert">
+              {error}
+            </div>
+          )}
           <HistoryPanel
             entries={history}
             onSelect={loadHistoryEntry}
@@ -962,156 +1070,133 @@ function BriefPage() {
       {/* ===== RESULTS PHASE ===== */}
       {phase === "results" && (
         <main className="results-page" ref={resultsRef}>
-          {/* Loading */}
           {loading && (
-            <div className="briefing-console loading-console">
-              <div className="console-toolbar">
-                <span className="console-status running">
-                  <i className="live-dot" /> RUNNING BRIEFING
-                </span>
-                <strong>{lastIdea?.title || "Your idea"}</strong>
-                <em>
-                  {researchDone + validateDone}/{dossierTotal + roomTotal}
-                </em>
-              </div>
-              <div className="console-body">
-                <div className="research-progress">
-                  <div className="progress-header">
-                    <h2>
-                      {dossierComplete
-                        ? "Act 2 — The room"
-                        : "Act 1 — Building your dossier"}
-                    </h2>
-                    <p className="progress-subtitle">
-                      {dossierComplete
-                        ? `${validateDone}/${roomTotal} experts reported`
-                        : `${researchDone}/${dossierTotal} scans complete`}
-                    </p>
+            <div className="run-stage">
+              <header className="run-head">
+                <p className="run-now">
+                  <i />
+                  Live
+                </p>
+                <div className="run-head-row">
+                  <h2>
+                    {dossierComplete ? "The room is in session" : "Building the dossier"}
+                  </h2>
+                  <div className="run-clock" aria-label="Elapsed time">
+                    {elapsedClock}
                   </div>
-
-                  <div
-                    className={`act-panel ${!dossierComplete ? "active" : "done"}`}
-                  >
-                    <div className="act-phase">
-                      <div
-                        className={`act-phase-label ${!dossierComplete ? "active" : "done"}`}
-                      >
-                        Act 1 · The dossier
-                      </div>
-                      <div
-                        className="agent-roster"
-                        role="status"
-                        aria-live="polite"
-                      >
-                        {Object.entries(RESEARCH_AGENTS).map(
-                          ([key, { label, icon }]) => {
-                            const status = researchAgents.find(
-                              (a: ResearchAgentStatus) => a.agent === key,
-                            );
-                            return (
-                              <div
-                                key={key}
-                                className={`agent-chip ${status?.status || "pending"}`}
-                              >
-                                <span className="icon">{icon}</span>
-                                <span className="label">{label}</span>
-                                <span className="status">
-                                  {status?.status === "done"
-                                    ? "\u2713"
-                                    : status?.status !== "pending"
-                                      ? "..."
-                                      : ""}
-                                </span>
-                              </div>
-                            );
-                          },
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`act-panel ${dossierComplete ? "active" : "pending"}`}
-                  >
-                    <div className="act-phase">
-                      <div
-                        className={`act-phase-label ${dossierComplete ? "active" : "pending"}`}
-                      >
-                        Act 2 · The room
-                      </div>
-                      <div
-                        className="agent-roster"
-                        role="status"
-                        aria-live="polite"
-                      >
-                        {agentOrder.map((name) => {
-                          const meta = agentMetaMap[name];
-                          const result = agentResults[name];
-                          return (
-                            <div
-                              key={name}
-                              className={`agent-chip ${result ? (result.error ? "failed" : "done") : dossierComplete ? "pending" : "waiting"}`}
-                            >
-                              <span
-                                className="icon"
-                                style={{ color: meta.color }}
-                              >
-                                {meta.icon}
-                              </span>
-                              <span className="label">{meta.label}</span>
-                              <span className="status">
-                                {result
-                                  ? result.error
-                                    ? "\u2715"
-                                    : "\u2713"
-                                  : ""}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="progress-track">
-                    <div className="progress-segment">
-                      <div
-                        className="progress-fill dossier"
-                        style={{
-                          width: `${Math.min((researchDone / dossierTotal) * 100, 100)}%`,
-                        }}
-                      />
-                      <span className="progress-label">Act 1 · Dossier</span>
-                    </div>
-                    <div className="progress-segment">
-                      <div
-                        className="progress-fill room"
-                        style={{
-                          width: `${Math.min((validateDone / roomTotal) * 100, 100)}%`,
-                        }}
-                      />
-                      <span className="progress-label">Act 2 · Room</span>
-                    </div>
-                  </div>
-
-                  <p className="loading-quip">{loadingPitch}</p>
-
-                  <button className="cancel-btn" onClick={handleCancel}>
-                    <X size={14} /> Cancel
-                  </button>
                 </div>
+                <p className="run-idea">{lastIdea?.title || "Your idea"}</p>
+                <p className="progress-subtitle">{workingLabel}</p>
+                <div
+                  className="run-meter"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={overallPct}
+                  aria-label="Briefing progress"
+                >
+                  <div
+                    className={`run-meter-fill ${overallPct === 0 ? "indeterminate" : ""}`}
+                    style={{ width: `${Math.max(overallPct, 6)}%` }}
+                  />
+                </div>
+                <p className="run-count">
+                  {researchDone + validateDone} of {dossierTotal + roomTotal} complete
+                </p>
+              </header>
+
+              <div className="run-acts">
+                <section
+                  className={`run-act ${!dossierComplete ? "is-active" : "is-done"}`}
+                >
+                  <div className="run-act-top">
+                    <span>01</span>
+                    <strong>Dossier</strong>
+                    <em>
+                      {researchDone}/{dossierTotal}
+                    </em>
+                  </div>
+                  <ul className="run-list" role="status" aria-live="polite">
+                    {Object.entries(RESEARCH_AGENTS).map(
+                      ([key, { label, icon }]) => {
+                        const status = researchAgents.find(
+                          (a: ResearchAgentStatus) => a.agent === key,
+                        );
+                        const state = status?.status || "pending";
+                        return (
+                          <li key={key} className={`run-item ${state}`}>
+                            <span className="icon">{icon}</span>
+                            <span className="label">{label}</span>
+                            <span className="mark">
+                              {state === "done" ? "Done" : state === "pending" ? "" : "Live"}
+                            </span>
+                          </li>
+                        );
+                      },
+                    )}
+                  </ul>
+                </section>
+
+                <section
+                  className={`run-act ${dossierComplete ? "is-active" : "is-wait"}`}
+                >
+                  <div className="run-act-top">
+                    <span>02</span>
+                    <strong>The room</strong>
+                    <em>
+                      {validateDone}/{roomTotal}
+                    </em>
+                  </div>
+                  <ul className="run-list" role="status" aria-live="polite">
+                    {agentOrder.map((name) => {
+                      const meta = agentMetaMap[name];
+                      const result = agentResults[name];
+                      const state = result
+                        ? result.error
+                          ? "failed"
+                          : "done"
+                        : dossierComplete
+                          ? "pending"
+                          : "waiting";
+                      return (
+                        <li key={name} className={`run-item ${state}`}>
+                          <span className="icon" style={{ color: meta.color }}>
+                            {meta.icon}
+                          </span>
+                          <span className="label">{meta.label}</span>
+                          <span className="mark">
+                            {state === "done"
+                              ? "Done"
+                              : state === "failed"
+                                ? "Fail"
+                                : state === "pending"
+                                  ? "Next"
+                                  : ""}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
               </div>
+
+              <footer className="run-foot">
+                <p className="loading-quip">{loadingPitch}</p>
+                <button className="cancel-btn" onClick={handleCancel}>
+                  <X size={14} />
+                  Cancel
+                </button>
+              </footer>
             </div>
           )}
 
-          {/* Error */}
-          {error && (
+          {!loading && error && (
             <div className="error-banner" role="alert">
               <span>{error}</span>
               {lastIdea && (
                 <button
                   className="error-retry"
-                  onClick={() => runUnified(lastIdea)}
+                  onClick={() => beginRun(lastIdea)}
                 >
                   Retry
                 </button>
@@ -1119,48 +1204,46 @@ function BriefPage() {
             </div>
           )}
 
-          {cancelled && !hasResults && (
+          {!loading && cancelled && !hasResults && (
             <div className="error-banner">
               <span>Cancelled.</span>
               <button onClick={() => setCancelled(false)}>Dismiss</button>
             </div>
           )}
 
-          {/* Report */}
-          {hasResults && !loading && (
+          {!loading && hasResults && (
             <ReportErrorBoundary>
               <div className="briefing-console report-console">
-                <div className="console-toolbar complete">
-                  <span className="console-status done">BRIEFING COMPLETE</span>
-                  <strong>{displayTitle}</strong>
-                  {processingTime ? <em>{processingTime}</em> : <em>Ready</em>}
+                <div className="report-banner">
+                  <div className="report-banner-copy">
+                    <span className="console-status done">Briefing complete</span>
+                    <strong>{displayTitle}</strong>
+                    {processingTime ? <em>{processingTime}</em> : <em>Ready</em>}
+                  </div>
                   {synthesis && (
-                    <>
+                    <div className="report-actions">
                       <button
                         type="button"
                         className="nav-btn"
                         onClick={handleRerunWithChanges}
-                        aria-label="Rerun the briefing with your changes"
                       >
-                        Rerun with changes
+                        Edit & rerun
                       </button>
                       <button
                         type="button"
                         className="nav-btn"
                         onClick={handleCopyReport}
-                        aria-label="Copy full report as Markdown"
                       >
-                        {copiedReport ? "Copied ✓" : "Copy report"}
+                        {copiedReport ? "Copied" : "Copy"}
                       </button>
                       <button
                         type="button"
                         className="nav-btn"
                         onClick={handleDownloadReport}
-                        aria-label="Download full report as Markdown file"
                       >
-                        Download .md
+                        Download
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
                 <div className="console-body">
@@ -1171,9 +1254,13 @@ function BriefPage() {
                       {positioning?.one_liner && (
                         <p className="one-liner">{positioning.one_liner}</p>
                       )}
-                      {ideaExcerpt && (
-                        <p className="idea-excerpt">{ideaExcerpt}</p>
-                      )}
+                      {!positioning?.one_liner && ideaExcerpt ? (
+                        <p className="idea-excerpt">
+                          {ideaExcerpt.length > 180
+                            ? `${ideaExcerpt.slice(0, 180).replace(/\s+\S*$/, "")}…`
+                            : ideaExcerpt}
+                        </p>
+                      ) : null}
                     </div>
 
                     {/* Verdict */}
@@ -1185,26 +1272,48 @@ function BriefPage() {
                           onCopy={handleCopy}
                           copied={copied}
                         />
+                        {integrity ? (
+                          <div
+                            className={`integrity-strip ${isDegradedRun(integrity) ? "is-degraded" : ""}`}
+                          >
+                            <span className="integrity-label">
+                              {isDegradedRun(integrity)
+                                ? "Thin evidence"
+                                : "Run integrity"}
+                            </span>
+                            <span>{integritySummary(integrity)}</span>
+                          </div>
+                        ) : null}
                         <Scorecard scores={synthesis.scores} />
                         <p className="calibration-note">
                           Calibration is harsh by design: 7+ is rare, most
                           ideas land 3-6. A low score with specific reasons is
                           the tool working, not failing.
                         </p>
-                        {pivotMatch && (
+                        {nextMove ? (
                           <div className="pivot-box">
                             <div className="pivot-label">Next move</div>
-                            <div className="pivot-text">{pivotMatch}</div>
+                            <Prose className="pivot-text" text={nextMove} />
                           </div>
-                        )}
+                        ) : null}
+                        {killCriteria ? (
+                          <div className="criteria-box">
+                            <div className="pivot-label">Kill criteria</div>
+                            <ul className="criteria-list">
+                              {splitCriteria(killCriteria).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
                         <section
                           className="report-section verdict-section"
                           aria-label="Why"
                         >
-                          <h2>The readout</h2>
-                          {readoutSections.length > 0 ? (
+                          <h2>Why</h2>
+                          {whySections.length > 0 ? (
                             <div className="readout-grid">
-                              {readoutSections.map((section) => (
+                              {whySections.map((section) => (
                                 <article
                                   key={section.label}
                                   className={`readout-card ${section.label === "KILL SHOT REVIEW" ? "danger" : ""}`}
@@ -1212,14 +1321,15 @@ function BriefPage() {
                                   <div className="readout-label">
                                     {section.label}
                                   </div>
-                                  <p>{section.body}</p>
+                                  <Prose text={section.body} />
                                 </article>
                               ))}
                             </div>
                           ) : (
-                            <div className="synthesis-content">
-                              {synthesisText}
-                            </div>
+                            <Prose
+                              className="synthesis-content"
+                              text={synthesisText}
+                            />
                           )}
                         </section>
                       </div>
@@ -1269,7 +1379,11 @@ function BriefPage() {
                             Act 1 · The dossier
                           </span>
                           <span className="report-act-hint">
-                            {dossierExpanded ? "Collapse" : "Expand"}
+                            {dossierExpanded
+                              ? "Collapse"
+                              : [competitors.length && `${competitors.length} competitors`, sources.length && `${sources.length} sources`]
+                                  .filter(Boolean)
+                                  .join(" · ") || "Expand"}
                           </span>
                         </button>
                         {dossierExpanded && (
