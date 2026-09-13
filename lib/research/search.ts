@@ -7,22 +7,97 @@ export type SearchResult = {
   score?: number;
 };
 
+export type SerpEngine = "google" | "google_news" | "google_scholar";
+
 export type SearchOptions = {
   query: string;
   numResults?: number;
   includeDomains?: string[];
   excludeDomains?: string[];
   type?: "neural" | "keyword" | "auto";
+  engine?: SerpEngine;
 };
+
+export type SearchSource = "serpapi" | "exa" | "tavily" | "mock";
 
 const SEARCH_TIMEOUT_MS = 15_000;
 
 // Read lazily so serverless environments and tests can control providers at runtime.
+function serpApiKey(): string | undefined {
+  return process.env.SERPAPI_API_KEY;
+}
 function exaKey(): string | undefined {
   return process.env.EXA_API_KEY;
 }
 function tavilyKey(): string | undefined {
   return process.env.TAVILY_API_KEY;
+}
+
+function googleQuery(opts: SearchOptions): string {
+  let q = opts.query;
+  if (opts.includeDomains?.length) {
+    q += " " + opts.includeDomains.map((d) => `site:${d}`).join(" OR ");
+  }
+  if (opts.excludeDomains?.length) {
+    q += " " + opts.excludeDomains.map((d) => `-site:${d}`).join(" ");
+  }
+  return q;
+}
+
+type SerpHit = {
+  title?: string;
+  link?: string;
+  snippet?: string;
+  source?: string | { name?: string; link?: string };
+  date?: string;
+  question?: string;
+};
+
+export function mapSerpApiResults(
+  data: {
+    organic_results?: SerpHit[];
+    news_results?: SerpHit[];
+    knowledge_graph?: {
+      title?: string;
+      description?: string;
+      source?: { name?: string; link?: string };
+    };
+  },
+  limit = 5,
+): SearchResult[] {
+  const out: SearchResult[] = [];
+  const seen = new Set<string>();
+
+  const push = (
+    title: string | undefined,
+    url: string | undefined,
+    snippet: string,
+  ) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    out.push({
+      title: title || url,
+      url,
+      snippet: snippet.slice(0, 500),
+    });
+  };
+
+  const kg = data.knowledge_graph;
+  if (kg?.source?.link) {
+    push(kg.title, kg.source.link, kg.description || "");
+  }
+
+  for (const r of data.organic_results || []) {
+    push(r.title || r.question, r.link, r.snippet || "");
+  }
+
+  for (const r of data.news_results || []) {
+    const sourceName = typeof r.source === "string" ? r.source : r.source?.name;
+    const snippet = [sourceName, r.date, r.snippet].filter(Boolean).join(" — ");
+    push(r.title, r.link, snippet);
+  }
+
+  return out.slice(0, limit);
 }
 
 async function fetchWithTimeout(
@@ -37,6 +112,37 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// --- SerpApi (Google Search / News / Scholar) ---
+
+async function searchSerpApi(opts: SearchOptions): Promise<SearchResult[]> {
+  const apiKey = serpApiKey();
+  if (!apiKey) return [];
+
+  const params = new URLSearchParams({
+    engine: opts.engine || "google",
+    q: googleQuery(opts),
+    api_key: apiKey,
+    hl: "en",
+    gl: "us",
+  });
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `https://serpapi.com/search.json?${params.toString()}`,
+      { method: "GET" },
+    );
+  } catch (err: any) {
+    throw new Error(`serpapi: ${err?.message || "request failed"}`);
+  }
+
+  if (!res.ok) throw new Error(`serpapi: HTTP ${res.status}`);
+
+  const data = await res.json();
+  if (data.error) throw new Error(`serpapi: ${data.error}`);
+  return mapSerpApiResults(data, opts.numResults || 5);
 }
 
 // --- Exa.ai ---
@@ -359,10 +465,17 @@ function mockSearch(opts: SearchOptions): SearchResult[] {
 
 export async function searchWithSource(opts: SearchOptions): Promise<{
   results: SearchResult[];
-  source: "exa" | "tavily" | "mock";
+  source: SearchSource;
   errors: string[];
 }> {
   const errors: string[] = [];
+
+  try {
+    const results = await searchSerpApi(opts);
+    if (results.length > 0) return { results, source: "serpapi", errors };
+  } catch (err: any) {
+    errors.push(err?.message || "serpapi failed");
+  }
 
   try {
     const results = await searchExa(opts);

@@ -1,8 +1,14 @@
 import OpenAI from "openai";
 import { runResearch } from "@/lib/research/orchestrator";
-import { admitRequest } from "@/lib/rateLimit";
+import { admitRequest, releaseRequest, startLimiter } from "@/lib/rateLimit";
 import { liveSearchConfigured } from "@/lib/searchConfig";
 import { buildDossierForAgents } from "@/lib/dossier";
+import {
+  clientIp,
+  originAllowed,
+  readJsonCapped,
+} from "@/lib/requestGuard";
+import { maybeDowngradeShip } from "@/lib/runIntegrity";
 import { vcPrompt } from "@/lib/agents/vc";
 import { engineerPrompt } from "@/lib/agents/engineer";
 import { indiePrompt } from "@/lib/agents/indiehacker";
@@ -141,7 +147,11 @@ async function runAgents(
 async function runSynthesis(
   agentResults: AgentResult[],
   enqueue: (chunk: string) => void,
-): Promise<ValidateResponse["synthesis"]> {
+  sources = 0,
+): Promise<{
+  synthesis: ValidateResponse["synthesis"];
+  fallback: boolean;
+}> {
   const succeeded = agentResults.filter((r) => !r.error);
   if (succeeded.length === 0) {
     throw new Error("All agents failed; cannot synthesize a verdict.");
@@ -158,6 +168,7 @@ async function runSynthesis(
     .join("\n\n");
 
   let output = "";
+  let fallback = false;
   try {
     output = await complete(synthPrompt, synthInput, {
       maxTokens: 1400,
@@ -170,6 +181,7 @@ async function runSynthesis(
   let scores = extractScores(output);
   if (!hasAnyScore(scores)) {
     scores = averageScores(succeeded.map((r) => r.scores));
+    fallback = true;
   }
   if (!/<verdict>/i.test(output)) {
     const verdict =
@@ -178,82 +190,52 @@ async function runSynthesis(
     if (verdict) output = `<verdict>${verdict}</verdict>\n\n${output}`.trim();
   }
   if (!output) {
+    fallback = true;
     output =
       "Synthesis failed for this run. Verdict and scores below are derived from the individual agent reports.";
     const verdict = verdictFromScore(scores.overall);
     if (verdict) output = `<verdict>${verdict}</verdict>\n\n${output}`;
   }
 
+  output = maybeDowngradeShip(output, sources);
   const synthesis = { output, scores };
   enqueue(sseEvent("synthesis", synthesis));
-  return synthesis;
+  enqueue(
+    sseEvent("integrity", {
+      type: "integrity",
+      fallback,
+      sources,
+      agentFailures: agentResults.filter((r) => r.error).length,
+    }),
+  );
+  return { synthesis, fallback };
 }
 
 
 // --- Main handler ---
 
 export async function POST(req: Request) {
+  if (!originAllowed(req)) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const url = new URL(req.url);
   const format = url.searchParams.get("format");
   const skipCache = url.searchParams.get("fresh") === "1";
 
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0] ||
-    req.headers.get("x-real-ip") ||
-    "unknown";
-
-  const admitted = await admitRequest(ip);
-  if (admitted === "misconfigured") {
-    return Response.json(
-      {
-        error:
-          "Production rate limits need Upstash Redis (UPSTASH_REDIS_REST_URL + TOKEN), or set ALLOW_INMEMORY_LIMITS=1.",
-      },
-      { status: 500 },
-    );
-  }
-  if (admitted === "burst") {
-    return Response.json(
-      { error: "Rate limit exceeded. Try again in 1 minute." },
-      { status: 429 },
-    );
-  }
-  if (admitted === "quota") {
-    return Response.json(
-      {
-        error:
-          "You've used both free briefings on this network. Paid plans are coming.",
-      },
-      { status: 429 },
-    );
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json(
-      { error: "Server is missing OPENAI_API_KEY" },
-      { status: 500 },
-    );
-  }
-
-  if (
-    process.env.NODE_ENV === "production" &&
-    process.env.ALLOW_MOCK_SEARCH !== "1" &&
-    !liveSearchConfigured()
-  ) {
-    return Response.json(
-      {
-        error:
-          "Production requires EXA_API_KEY or TAVILY_API_KEY so reports are not mock data.",
-      },
-      { status: 500 },
-    );
-  }
-
-  let body;
+  let body: Record<string, unknown>;
   try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    const parsed = await readJsonCapped(req);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    body = parsed as Record<string, unknown>;
+  } catch (err: any) {
+    const tooLarge = err?.message === "payload too large";
+    return Response.json(
+      { error: tooLarge ? "Request too large" : "Invalid JSON body" },
+      { status: tooLarge ? 413 : 400 },
+    );
   }
 
   const {
@@ -280,6 +262,62 @@ export async function POST(req: Request) {
     return Response.json({ error: "description is required" }, { status: 400 });
   }
 
+  if (!process.env.OPENAI_API_KEY) {
+    return Response.json(
+      { error: "Server is missing OPENAI_API_KEY" },
+      { status: 500 },
+    );
+  }
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_MOCK_SEARCH !== "1" &&
+    !liveSearchConfigured()
+  ) {
+    return Response.json(
+      {
+        error:
+          "Production requires SERPAPI_API_KEY, EXA_API_KEY, or TAVILY_API_KEY so reports are not mock data.",
+      },
+      { status: 500 },
+    );
+  }
+
+  const ip = clientIp(req.headers);
+  if (!startLimiter.check(ip)) {
+    return Response.json(
+      { error: "Rate limit exceeded. Try again in 1 minute." },
+      { status: 429 },
+    );
+  }
+
+  const admitted = await admitRequest(ip);
+  if (admitted === "misconfigured") {
+    return Response.json(
+      {
+        error:
+          "Production rate limits need Upstash Redis (UPSTASH_REDIS_REST_URL + TOKEN), or set ALLOW_INMEMORY_LIMITS=1.",
+      },
+      { status: 500 },
+    );
+  }
+  if (admitted === "quota") {
+    return Response.json(
+      {
+        error:
+          "You've used both free briefings on this network today. Paid plans are coming.",
+      },
+      { status: 429 },
+    );
+  }
+
+  let charged = true;
+  const refund = async () => {
+    if (!charged) return;
+    charged = false;
+    await releaseRequest(ip);
+  };
+
   const sanitize = (s: string) =>
     s
       .replace(/[^\p{L}\p{N}\s.,!?;:'"()-]/gu, "")
@@ -289,7 +327,7 @@ export async function POST(req: Request) {
   const researchInput: ResearchInput = {
     title: sanitize(title),
     description: sanitize(description),
-    context: context ? sanitize(context) : undefined,
+    context: typeof context === "string" ? sanitize(context) : undefined,
   };
 
   const buildSection = (label: string, value?: unknown) => {
@@ -317,13 +355,11 @@ export async function POST(req: Request) {
 
   const ideaText = sections.join("\n\n").slice(0, MAX_IDEA_CHARS);
 
-  // JSON fallback
   if (format === "json") {
     try {
-      const researchEvents: string[] = [];
       const researchResult = await runResearch(
         researchInput,
-        (e) => researchEvents.push(e),
+        () => {},
         req.signal,
         { skipCache },
       );
@@ -331,13 +367,24 @@ export async function POST(req: Request) {
         `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
         () => {},
       );
-      const synthesis = await runSynthesis(agentResults, () => {});
+      const { synthesis, fallback } = await runSynthesis(
+        agentResults,
+        () => {},
+        researchResult.sources?.length || 0,
+      );
       return Response.json({
         research: researchResult,
         agents: agentResults,
         synthesis,
+        integrity: {
+          type: "integrity",
+          fallback,
+          sources: researchResult.sources?.length || 0,
+          agentFailures: agentResults.filter((r) => r.error).length,
+        },
       });
     } catch (err: any) {
+      await refund();
       return Response.json(
         { error: err.message || "Unknown error" },
         { status: 500 },
@@ -345,7 +392,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // SSE streaming
   const encoder = new TextEncoder();
   const abortController = new AbortController();
 
@@ -357,69 +403,58 @@ export async function POST(req: Request) {
         } catch {}
       };
 
-      try {
-        // Abort when the client cancels OR disconnects — stops in-flight OpenAI calls.
-        const clientAbort = new Promise<never>((_, reject) => {
-          req.signal.addEventListener("abort", () =>
-            reject(new Error("Cancelled")),
-          );
-        });
-        abortController.signal.addEventListener("abort", () => {
-          try {
-            controller.enqueue(
-              encoder.encode(sseEvent("error", { message: "Cancelled" })),
-            );
-          } catch {}
-        });
+      const onClientAbort = () => abortController.abort();
+      req.signal.addEventListener("abort", onClientAbort);
+      if (req.signal.aborted) abortController.abort();
 
-        // Phase 1: Research
-        const researchPromise = runResearch(
+      try {
+        if (abortController.signal.aborted) {
+          throw new Error("Cancelled");
+        }
+
+        const researchResult = await runResearch(
           researchInput,
           enqueue,
           abortController.signal,
           { skipCache },
         );
-        const abortPromise = new Promise<never>((_, reject) => {
-          abortController.signal.addEventListener("abort", () => {
-            reject(new Error("Cancelled"));
-          });
-        });
+        if (abortController.signal.aborted) throw new Error("Cancelled");
 
-        const researchResult = await Promise.race([
-          researchPromise,
-          abortPromise,
-          clientAbort,
-        ]);
-
-        // Emit verifiable source links gathered during research.
         if (researchResult?.sources?.length) {
-          enqueue(sseEvent("sources", { type: "sources", data: researchResult.sources }));
+          enqueue(
+            sseEvent("sources", {
+              type: "sources",
+              data: researchResult.sources,
+            }),
+          );
         }
 
-        // Phase 2: Validation
         enqueue(sseEvent("status", { phase: "validate", status: "starting" }));
-        const agentResults = await Promise.race([
-          runAgents(
-            `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
-            enqueue,
-          ),
-          abortPromise,
-          clientAbort,
-        ]);
-        await Promise.race([
-          runSynthesis(agentResults, enqueue),
-          abortPromise,
-          clientAbort,
-        ]);
+        const agentResults = await runAgents(
+          `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
+          enqueue,
+        );
+        if (abortController.signal.aborted) throw new Error("Cancelled");
+
+        await runSynthesis(
+          agentResults,
+          enqueue,
+          researchResult.sources?.length || 0,
+        );
 
         enqueue(sseEvent("done", {}));
       } catch (err: any) {
-        if (err.message !== "Cancelled") {
-          enqueue(
-            sseEvent("error", { message: err.message || "Research failed" }),
-          );
-        }
+        await refund();
+        enqueue(
+          sseEvent("error", {
+            message:
+              err.message === "Cancelled"
+                ? "Cancelled"
+                : err.message || "Research failed",
+          }),
+        );
       } finally {
+        req.signal.removeEventListener("abort", onClientAbort);
         try {
           controller.close();
         } catch {}

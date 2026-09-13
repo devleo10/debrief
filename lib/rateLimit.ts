@@ -1,84 +1,91 @@
-/**
- * In-memory fixed-window rate limiter keyed by client IP.
- *
- * Suitable for a single-instance deployment. Expired entries are swept
- * lazily on each check rather than on a timer, so there is no background
- * interval keeping the process alive.
- */
-import { redisConfigured, redisIncr } from "./upstash";
+import { isRedisConfigured, redisDecr, redisIncr } from "@/lib/upstash";
 
-export type RateLimiter = {
-  /** Returns true when the request is allowed under the limit. */
-  check(key: string): boolean;
-};
+export const FREE_RUNS_PER_IP = 2;
+export const FREE_WINDOW_SECONDS = 86_400;
 
-export function createRateLimiter(
-  windowMs: number,
-  maxRequests: number,
-): RateLimiter {
-  const hits = new Map<string, { count: number; resetAt: number }>();
+type LimitResult = { count: number; resetAt: number };
 
+const buckets = new Map<string, LimitResult>();
+
+function incrMemory(key: string, windowSec: number): LimitResult {
+  const now = Date.now();
+  const current = buckets.get(key);
+  if (!current || current.resetAt <= now) {
+    const next = { count: 1, resetAt: now + windowSec * 1000 };
+    buckets.set(key, next);
+    return next;
+  }
+  current.count += 1;
+  buckets.set(key, current);
+  return current;
+}
+
+function decrMemory(key: string) {
+  const current = buckets.get(key);
+  if (!current) return;
+  current.count = Math.max(0, current.count - 1);
+  buckets.set(key, current);
+}
+
+export function resetFreeQuotaForTests() {
+  buckets.clear();
+}
+
+export function createRateLimiter(windowMs: number, max: number) {
+  const hits = new Map<string, number[]>();
   return {
     check(key: string): boolean {
       const now = Date.now();
-      if (hits.size > maxRequests * 4) {
-        for (const [k, v] of hits) {
-          if (now > v.resetAt) hits.delete(k);
-        }
+      const recent = (hits.get(key) || []).filter((t) => now - t < windowMs);
+      if (recent.length >= max) {
+        hits.set(key, recent);
+        return false;
       }
-
-      const entry = hits.get(key);
-      if (!entry || now > entry.resetAt) {
-        hits.set(key, { count: 1, resetAt: now + windowMs });
-        return true;
-      }
-      if (entry.count >= maxRequests) return false;
-      entry.count++;
+      recent.push(now);
+      hits.set(key, recent);
       return true;
     },
   };
 }
 
-const BURST_MAX = 5;
-const BURST_WINDOW_S = 60;
-/** Free tier: two briefings per IP. Redis keeps this across deploys. */
-export const FREE_RUNS_PER_IP = 2;
+export const startLimiter = createRateLimiter(60_000, 8);
+export const validateLimiter = createRateLimiter(60_000, 12);
 
-const burstMemory = createRateLimiter(BURST_WINDOW_S * 1000, BURST_MAX);
-const freeMemory = new Map<string, number>();
+export type AdmitResult = "ok" | "quota" | "misconfigured";
 
-export type AdmitResult = "ok" | "burst" | "quota" | "misconfigured";
-
-function takeFreeSlot(ip: string): boolean {
-  const used = freeMemory.get(ip) || 0;
-  if (used >= FREE_RUNS_PER_IP) return false;
-  freeMemory.set(ip, used + 1);
-  return true;
+function vercelWithoutRedis(): boolean {
+  return (
+    Boolean(process.env.VERCEL) &&
+    !isRedisConfigured() &&
+    process.env.ALLOW_INMEMORY_LIMITS !== "1"
+  );
 }
 
-/**
- * Burst (5/min) + two free briefings per IP.
- * On Vercel, Redis is required unless ALLOW_INMEMORY_LIMITS=1.
- */
 export async function admitRequest(ip: string): Promise<AdmitResult> {
-  const vercel = process.env.VERCEL === "1";
-  if (
-    vercel &&
-    !redisConfigured() &&
-    process.env.ALLOW_INMEMORY_LIMITS !== "1"
-  ) {
-    return "misconfigured";
+  if (vercelWithoutRedis()) return "misconfigured";
+  const key = `free:${ip}`;
+  if (isRedisConfigured()) {
+    const count = await redisIncr(key, FREE_WINDOW_SECONDS);
+    if (count == null) return "misconfigured";
+    if (count > FREE_RUNS_PER_IP) {
+      await redisDecr(key);
+      return "quota";
+    }
+    return "ok";
   }
-
-  if (redisConfigured()) {
-    const burst = await redisIncr(`rl:min:${ip}`, BURST_WINDOW_S);
-    if (burst !== null && burst > BURST_MAX) return "burst";
-    const used = await redisIncr(`rl:free:${ip}`);
-    if (used !== null && used > FREE_RUNS_PER_IP) return "quota";
-    if (burst !== null && used !== null) return "ok";
+  const count = incrMemory(key, FREE_WINDOW_SECONDS).count;
+  if (count > FREE_RUNS_PER_IP) {
+    decrMemory(key);
+    return "quota";
   }
-
-  if (!burstMemory.check(ip)) return "burst";
-  if (!takeFreeSlot(ip)) return "quota";
   return "ok";
+}
+
+export async function releaseRequest(ip: string): Promise<void> {
+  const key = `free:${ip}`;
+  if (isRedisConfigured()) {
+    await redisDecr(key);
+    return;
+  }
+  decrMemory(key);
 }

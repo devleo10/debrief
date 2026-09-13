@@ -66,6 +66,15 @@ describe("filterCompetitors", () => {
     );
     expect(kept.map((x) => x.name)).toEqual(["ChatGPT", "Claude"]);
   });
+
+  it("blanks non-http competitor urls", () => {
+    const kept = filterCompetitors(
+      [c("ChatGPT", "General LLM that founders use to critique ideas", "javascript:alert(1)")],
+      "idea_validation",
+    );
+    const gpt = kept.find((x) => x.name === "ChatGPT");
+    expect(gpt?.url).not.toMatch(/^javascript:/);
+  });
 });
 
 describe("competitorFitsFrame", () => {

@@ -9,6 +9,8 @@ export function redisConfigured(): boolean {
   );
 }
 
+export const isRedisConfigured = redisConfigured;
+
 async function command(args: (string | number)[]): Promise<unknown> {
   const base = process.env.UPSTASH_REDIS_REST_URL?.trim();
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
@@ -54,4 +56,14 @@ export async function redisSet(
   ttlSeconds: number,
 ): Promise<void> {
   await command(["SET", key, value, "EX", ttlSeconds]);
+}
+
+export async function redisDecr(key: string): Promise<number | null> {
+  const n = await command(["DECR", key]);
+  if (typeof n !== "number") return null;
+  if (n < 0) {
+    await command(["SET", key, "0", "KEEPTTL"]);
+    return 0;
+  }
+  return n;
 }

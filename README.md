@@ -4,13 +4,13 @@ Paste a startup idea. Seven experts with different failure lenses tear into it a
 
 It is not a motivational idea generator. Most ideas score 3–6 out of 10, and that is by design — a low score with specific reasons is the tool working, not failing.
 
-Production requires live search (`EXA_API_KEY` or `TAVILY_API_KEY`) and, on Vercel, Upstash Redis for rate limits. Local `npm run dev` still runs on OpenAI alone (mock search for two demo domains).
+Production requires live search (`SERPAPI_API_KEY`, `EXA_API_KEY`, or `TAVILY_API_KEY`) and, on Vercel, Upstash Redis for rate limits. Each network IP gets **2 briefings per day** (resets after 24h). Local `npm run dev` still runs on OpenAI alone (mock search for two demo domains).
 
 ## What you get
 
 For every idea submitted at `/brief`, the app runs two acts:
 
-1. **Act 1 — Dossier.** Live web search (Exa or Tavily) finds competitors; Firecrawl scrapes their pricing pages into markdown (keyless by default). Seven extraction agents map competitors, pricing tiers, funding, market gaps, distribution channels, positioning, and a launch plan. Every claim traces to source URLs shown in the report.
+1. **Act 1 — Dossier.** Live web search (SerpApi Google Search/News, or Exa/Tavily) finds competitors; Firecrawl scrapes their pricing pages into markdown (keyless by default). Seven extraction agents map competitors, pricing tiers, funding, market gaps, distribution channels, positioning, and a launch plan. Every claim traces to source URLs shown in the report.
 2. **Act 2 — The room.** A VC, senior engineer, indie hacker, PM, UX designer, skeptical user, and devil's advocate each critique the idea independently using that dossier as shared evidence. A synthesizer then writes the final readout: consensus, genuine tension, kill-shot review, verdict, next move, and measurable kill criteria with deadlines.
 
 ## Quick start
@@ -30,7 +30,8 @@ npm run dev
 Optional but recommended for real research on any idea:
 
 ```bash
-EXA_API_KEY=...      # preferred search provider (required in production)
+SERPAPI_API_KEY=...  # preferred search provider (Google Search + News)
+EXA_API_KEY=...      # fallback if SerpApi is unset or returns nothing
 TAVILY_API_KEY=...   # fallback if Exa is unset or fails
 UPSTASH_REDIS_REST_URL=...   # required on Vercel (rate limit + cache)
 UPSTASH_REDIS_REST_TOKEN=...
@@ -46,7 +47,7 @@ See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for every variable, including mod
 | --- | --- |
 | `npm run dev` | Dev server at `localhost:3000` |
 | `npm run build` / `npm start` | Production build and serve |
-| `npm run test` | Vitest suite (67 tests) |
+| `npm run test` | Vitest suite (114 tests) |
 | `npm run test:watch` | Watch mode |
 | `npm run test:coverage` | Coverage report |
 | `npm run typecheck` | `tsc --noEmit` |

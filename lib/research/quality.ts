@@ -117,8 +117,9 @@ export function filterCompetitors(
         ])
       : [];
   const merged = new Map<string, Competitor>();
-  for (const c of [...fromModel, ...seeds, ...defaults]) {
-    if (!c?.name) continue;
+  for (const raw of [...fromModel, ...seeds, ...defaults]) {
+    if (!raw?.name) continue;
+    const c = isUsableSourceUrl(raw.url) ? raw : { ...raw, url: "" };
     const key = c.name.toLowerCase();
     if (!merged.has(key)) merged.set(key, c);
   }
@@ -229,7 +230,7 @@ export function scrubPainFrequency(frequency?: string | null): string {
   return raw;
 }
 
-export function isUsableSourceUrl(url?: string | null): boolean {
+export function isUsableSourceUrl(url?: string | null): url is string {
   if (!url || !/^https?:\/\//i.test(url)) return false;
   return !PLACEHOLDER_URL.test(url);
 }

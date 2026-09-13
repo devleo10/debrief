@@ -1,10 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseJson } from "@/lib/research/json";
-import { searchWithSource } from "@/lib/research/search";
+import { mapSerpApiResults, searchWithSource } from "@/lib/research/search";
+import { liveSearchConfigured } from "@/lib/searchConfig";
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
+
+function stubNoLiveSearch() {
+  vi.stubEnv("SERPAPI_API_KEY", "");
+  vi.stubEnv("EXA_API_KEY", "");
+  vi.stubEnv("TAVILY_API_KEY", "");
+}
 
 describe("parseJson", () => {
   it("parses clean JSON", () => {
@@ -40,6 +48,10 @@ describe("parseJson", () => {
 });
 
 describe("searchWithSource (mock fallback, no API keys)", () => {
+  beforeEach(() => {
+    stubNoLiveSearch();
+  });
+
   it("falls back to mock data for the standup-tool demo domain", async () => {
     const { results, source, errors } = await searchWithSource({
       query: "slack standup bot competitors alternatives",
@@ -69,12 +81,111 @@ describe("searchWithSource (mock fallback, no API keys)", () => {
   it("does not use mock search in production", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ALLOW_MOCK_SEARCH", "");
-    vi.stubEnv("EXA_API_KEY", "");
-    vi.stubEnv("TAVILY_API_KEY", "");
+    stubNoLiveSearch();
     const { results, errors } = await searchWithSource({
       query: "slack standup bot competitors alternatives",
     });
     expect(results).toEqual([]);
     expect(errors.join(" ")).toMatch(/mock search disabled/);
+  });
+});
+
+describe("mapSerpApiResults", () => {
+  it("maps organic results and skips duplicate URLs", () => {
+    const results = mapSerpApiResults(
+      {
+        knowledge_graph: {
+          title: "Acme",
+          description: "Scheduling software",
+          source: { name: "Wikipedia", link: "https://en.wikipedia.org/wiki/Acme" },
+        },
+        organic_results: [
+          {
+            title: "Acme",
+            link: "https://acme.test",
+            snippet: "Calendar automation",
+          },
+          {
+            title: "Acme again",
+            link: "https://acme.test",
+            snippet: "duplicate",
+          },
+        ],
+        news_results: [
+          {
+            title: "Acme raises Series A",
+            link: "https://news.test/acme",
+            snippet: "Raised $12M",
+            source: "TechCrunch",
+            date: "2 days ago",
+          },
+        ],
+      },
+      5,
+    );
+    expect(results).toEqual([
+      {
+        title: "Acme",
+        url: "https://en.wikipedia.org/wiki/Acme",
+        snippet: "Scheduling software",
+      },
+      {
+        title: "Acme",
+        url: "https://acme.test",
+        snippet: "Calendar automation",
+      },
+      {
+        title: "Acme raises Series A",
+        url: "https://news.test/acme",
+        snippet: "TechCrunch — 2 days ago — Raised $12M",
+      },
+    ]);
+  });
+});
+
+describe("searchWithSource (SerpApi)", () => {
+  it("uses Google organic results when SERPAPI_API_KEY is set", async () => {
+    vi.stubEnv("SERPAPI_API_KEY", "test-key");
+    vi.stubEnv("EXA_API_KEY", "");
+    vi.stubEnv("TAVILY_API_KEY", "");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        organic_results: [
+          {
+            title: "Acme",
+            link: "https://acme.test",
+            snippet: "A competitor",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { results, source } = await searchWithSource({
+      query: "acme competitors",
+      engine: "google_news",
+    });
+
+    expect(source).toBe("serpapi");
+    expect(results[0]).toEqual({
+      title: "Acme",
+      url: "https://acme.test",
+      snippet: "A competitor",
+    });
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("https://serpapi.com/search.json?");
+    expect(url).toContain("engine=google_news");
+    expect(url).toContain("q=acme+competitors");
+    expect(url).toContain("api_key=test-key");
+  });
+});
+
+describe("liveSearchConfigured", () => {
+  it("treats SerpApi as a live search provider", () => {
+    stubNoLiveSearch();
+    expect(liveSearchConfigured()).toBe(false);
+    vi.stubEnv("SERPAPI_API_KEY", "test-key");
+    expect(liveSearchConfigured()).toBe(true);
   });
 });

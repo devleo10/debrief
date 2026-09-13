@@ -14,6 +14,27 @@ import {
   MapPin,
 } from "lucide-react";
 import type { Competitor, Positioning, LaunchStrategy, SourceLink, ResearchResult } from "@/lib/research/types";
+import { isUsableSourceUrl } from "@/lib/safeUrl";
+import type { ReactNode } from "react";
+
+function ExternalHref({
+  href,
+  className,
+  children,
+}: {
+  href?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!isUsableSourceUrl(href)) {
+    return <span className={className}>{children}</span>;
+  }
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+      {children}
+    </a>
+  );
+}
 
 export function BriefFrameSection({ brief }: { brief: NonNullable<ResearchResult["brief"]> }) {
   return (
@@ -39,7 +60,7 @@ export function CompetitorsSection({ competitors }: { competitors: Competitor[] 
         {competitors.map((c, i) => (
           <div key={c.url || c.name || i} className="competitor-card">
             <h3>{c.name}</h3>
-            <a href={c.url} target="_blank" rel="noopener noreferrer" className="competitor-url">{c.url}</a>
+            <ExternalHref href={c.url} className="competitor-url">{c.url}</ExternalHref>
             <p>{c.description}</p>
             {c.pricing && <div className="competitor-detail"><strong>Pricing:</strong> {c.pricing}</div>}
             {c.funding && <div className="competitor-detail"><strong>Funding:</strong> {c.funding}</div>}
@@ -132,9 +153,9 @@ export function GapsSection({ gaps }: { gaps: any }) {
             <div key={i} className="pain-point">
               <p>{p.point}</p>
               {p.source ? (
-                <a className="frequency" href={p.source} target="_blank" rel="noopener noreferrer">
+                <ExternalHref className="frequency" href={p.source}>
                   source
-                </a>
+                </ExternalHref>
               ) : null}
             </div>
           ))}
@@ -179,9 +200,9 @@ export function DistributionSection({ distribution }: { distribution: any }) {
                 <strong>{c.name}</strong>
                 <span className="community-size">{c.size}</span>
                 {c.url && (
-                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="community-link">
+                  <ExternalHref href={c.url} className="community-link">
                     <Globe size={12} />
-                  </a>
+                  </ExternalHref>
                 )}
               </div>
             ))}
@@ -266,7 +287,7 @@ export function SourcesSection({ sources }: { sources: SourceLink[] }) {
         {sources.map((s, i) => (
           <li key={`${s.url}-${i}`} className="source-item">
             <span className="source-section">{s.section}</span>
-            <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
+            <ExternalHref href={s.url}>{s.title}</ExternalHref>
           </li>
         ))}
       </ul>
