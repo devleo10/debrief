@@ -7,7 +7,8 @@ const SUPPORT = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
 export default function LegalFooter({ className }: { className?: string }) {
   return (
     <footer className={className}>
-      Debrief — not financial, legal, or investment advice.{" "}
+      © 2026 Debrief. All rights reserved. Not financial, legal, or investment
+      advice.{" "}
       <Link href="/privacy">Privacy</Link>
       {" · "}
       <Link href="/terms">Terms</Link>

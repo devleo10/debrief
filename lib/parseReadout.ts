@@ -100,16 +100,34 @@ export function splitParagraphs(text: string, maxChars = 200): string[] {
   return out;
 }
 
+/** Indented list markers survive a naive `^[-*]` strip, so trim before matching. */
+function stripListMarker(line: string): string {
+  let out = line.trim();
+  for (let prev = ""; out !== prev; ) {
+    prev = out;
+    out = out
+      .replace(/^[-*•–—]+\s*/, "")
+      .replace(/^\d+[.)]\s*/, "")
+      .trim();
+  }
+  return out;
+}
+
+/** A criterion names a trigger and something checkable, not a summary sentence. */
+function isCriterion(line: string): boolean {
+  return /\bif\b/i.test(line) && /\bstop\b|\d/.test(line);
+}
+
 export function splitCriteria(text: string): string[] {
-  const lines = text
-    .split(/\n+/)
-    .map((line) => line.replace(/^[-*•]+\s*/, "").replace(/^\d+[.)]\s*/, "").trim())
-    .filter(Boolean);
-  if (lines.length >= 2) return lines;
-  return text
-    .split(/(?=If\s)/i)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = text.split(/\n+/).map(stripListMarker).filter(Boolean);
+  const items =
+    lines.length >= 2
+      ? lines
+      : text.split(/(?=If\s)/i).map(stripListMarker).filter(Boolean);
+
+  // The synthesizer sometimes runs past the section and appends a score recap.
+  const criteria = items.filter(isCriterion);
+  return (criteria.length ? criteria : items).slice(0, 3);
 }
 
 export function previewLine(text: string, maxChars = 140): string {

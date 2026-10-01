@@ -80,6 +80,30 @@ describe("splitCriteria", () => {
     );
     expect(items).toHaveLength(2);
   });
+
+  it("strips list markers from indented items", () => {
+    const items = splitCriteria(
+      [
+        "If fewer than 10 paying users are acquired by Day 60, stop.",
+        "  - If CAC exceeds $40 for three consecutive weeks, stop.",
+        "  - If under 30% of beta users return in week 2, stop.",
+      ].join("\n"),
+    );
+    expect(items).toHaveLength(3);
+    expect(items.every((i) => !i.startsWith("-"))).toBe(true);
+  });
+
+  it("drops the score recap the synthesizer appends after the section", () => {
+    const items = splitCriteria(
+      [
+        "If fewer than 10 paying users are acquired by Day 60, stop.",
+        "- If CAC exceeds $40 for three consecutive weeks, stop.",
+        "Final scores reflect the fundamental issues with market differentiation.",
+      ].join("\n"),
+    );
+    expect(items).toHaveLength(2);
+    expect(items.join(" ")).not.toMatch(/Final scores/);
+  });
 });
 
 describe("previewLine", () => {

@@ -2,6 +2,7 @@
   "name": "debrief",
   "version": "1.0.0",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -14,6 +15,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.17.0",
     "next": "^14.2.0",
@@ -24,6 +27,7 @@
   },
   "devDependencies": {
     "@shadcn/lint": "^0.1.0",
+    "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20.11.0",

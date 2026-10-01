@@ -77,6 +77,12 @@ docs/                   Architecture, API contract, environment, testing
 - [docs/TESTING.md](docs/TESTING.md) — what the suite covers and how to smoke-test live
 - [plan.md](plan.md) — product principles and scoring philosophy
 
+## License
+
+Proprietary. All rights reserved. You may look at the repo and run it locally
+to evaluate Debrief. You may not copy it, ship a competing product from it, or
+use it commercially without a written license. See [LICENSE](LICENSE).
+
 ## Editing the prompts
 
 The agent prompts in `lib/agents/` are guarded by contract tests (`tests/agentPrompts.test.ts`). If you change what dimensions an agent scores or remove the calibration language, those tests will fail — intentionally. Scores are only useful when backed by concrete reasoning, so keep the anti-generic rules intact.

@@ -1,4 +1,5 @@
 export const STARTING_CREDITS = 2;
+export const ANON_TRIAL_CREDITS = 1;
 export const CREDIT_COST = 1;
 
 export type Account = {
@@ -10,7 +11,39 @@ type Ledger = Record<string, Account>;
 
 const USER_KEY = "debrief.session";
 const LEDGER_KEY = "debrief.ledger";
+const ANON_KEY = "debrief.anonCredits";
 export const PENDING_IDEA_KEY = "debrief.pendingIdea";
+
+function readAnonCreditsRaw(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(ANON_KEY);
+    if (raw === null) return ANON_TRIAL_CREDITS;
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function readAnonCredits(): number {
+  return readAnonCreditsRaw() ?? 0;
+}
+
+export function spendAnonCredit(cost = CREDIT_COST): number {
+  const current = readAnonCreditsRaw() ?? 0;
+  if (current < cost) throw new Error("No free trials left.");
+  const next = current - cost;
+  localStorage.setItem(ANON_KEY, String(next));
+  return next;
+}
+
+export function refundAnonCredit(cost = CREDIT_COST): number {
+  const current = readAnonCreditsRaw() ?? 0;
+  const next = current + cost;
+  localStorage.setItem(ANON_KEY, String(next));
+  return next;
+}
 
 function readLedger(): Ledger {
   if (typeof window === "undefined") return {};

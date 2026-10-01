@@ -37,6 +37,10 @@ export type MarketSize = {
   sam: string;
   som: string;
   sources: string[];
+  /** Per-figure attribution. A figure without one is dropped, not shown bare. */
+  tam_source?: string;
+  sam_source?: string;
+  som_source?: string;
 };
 
 export type PainPoint = {
@@ -97,6 +101,36 @@ export type SourceLink = {
   section: string;
   title: string;
   url: string;
+  /** True once a dossier field actually references this page. */
+  cited?: boolean;
+};
+
+export type GitHubRepoHit = {
+  name: string;
+  full_name: string;
+  url: string;
+  description: string;
+  stars: number;
+  forks: number;
+  watchers: number;
+  open_issues: number;
+  language: string | null;
+  topics: string[];
+  license: string | null;
+  last_pushed: string;
+  popularity_tier: "viral" | "established" | "niche" | "inactive";
+  relevance: "High" | "Medium" | "Low";
+  overlap: string;
+};
+
+export type GitHubLandscape = {
+  queries: string[];
+  total_matches: number;
+  signal: "crowded" | "moderate" | "open";
+  summary: string;
+  repos: GitHubRepoHit[];
+  unavailable?: boolean;
+  note?: string;
 };
 
 export type ResearchResult = {
@@ -106,8 +140,11 @@ export type ResearchResult = {
     job?: string;
     buyer?: string;
     family?: string;
+    inferred?: boolean;
   };
   sources: SourceLink[];
+  /** Results dropped as off-topic before reaching any agent. */
+  discardedSources?: number;
   competitors: Competitor[];
   pricing: {
     range: { low: number; high: number; currency: string; period: string };
@@ -137,6 +174,7 @@ export type ResearchResult = {
   };
   positioning: Positioning;
   launch: LaunchStrategy;
+  github: GitHubLandscape | null;
 };
 
 export type ResearchInput = {
@@ -146,6 +184,12 @@ export type ResearchInput = {
   job?: string;
   buyer?: string;
   family?: "idea_validation" | "project_management" | "other";
+  /** Canonical domain terms used to build search queries. Never the raw phrasing. */
+  search_terms?: string[];
+  /** Tokens that are UI analogies rather than market entities ("tinder", "swipe"). */
+  metaphor_terms?: string[];
+  /** True when we expanded a terse input into a fuller brief than the user typed. */
+  inferred?: boolean;
 };
 
 export type ResearchEvent =
@@ -158,5 +202,6 @@ export type ResearchEvent =
   | { type: "distribution"; data: ResearchResult["distribution"] | null }
   | { type: "positioning"; data: Positioning }
   | { type: "launch"; data: LaunchStrategy }
+  | { type: "github"; data: GitHubLandscape }
   | { type: "done"; report_id: string; processing_time: string; cached?: boolean }
   | { type: "error"; message: string };

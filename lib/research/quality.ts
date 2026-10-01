@@ -32,6 +32,77 @@ export function inferFamily(input: ResearchInput): IdeaFamily {
   return input.family || "other";
 }
 
+/**
+ * Consumer brands that founders use as UI shorthand ("tinder but for X"). Searching
+ * these verbatim returns the brand's own domain — dating, rides, rentals — instead of
+ * the market the founder means.
+ */
+const METAPHOR_BRANDS =
+  /\b(tinder|uber|airbnb|netflix|spotify|shazam|duolingo|instagram|tiktok|robinhood|doordash|substack|figma|notion|slack|github)\b/gi;
+
+const METAPHOR_MECHANICS = /\b(swipe|swiping|right swipe|match|matching)\b/gi;
+
+const QUERY_STOP_WORDS = new Set([
+  "a", "an", "the", "for", "and", "or", "to", "with", "that", "this", "your",
+  "from", "into", "using", "but", "like", "app", "tool", "platform", "saas",
+  "startup", "idea", "ai", "powered", "simple", "new", "based",
+]);
+
+/**
+ * Tokens in this input that are analogies rather than market entities. Prefers the
+ * normalizer's judgment; falls back to the brand list so a failed LLM call still
+ * keeps "tinder" out of the queries.
+ */
+export function metaphorTermsFor(input: ResearchInput): string[] {
+  if (input.metaphor_terms?.length) {
+    return [...new Set(input.metaphor_terms.map((t) => t.toLowerCase().trim()))].filter(
+      Boolean,
+    );
+  }
+  const blob = `${input.title} ${input.description}`;
+  // Only treat a brand as a metaphor when the idea reads as "X for Y".
+  if (!/\bfor\b/i.test(blob)) return [];
+  const brands = blob.match(METAPHOR_BRANDS) || [];
+  const mechanics = blob.match(METAPHOR_MECHANICS) || [];
+  return [...new Set([...brands, ...mechanics].map((t) => t.toLowerCase()))];
+}
+
+/**
+ * Canonical domain terms for query building. Uses the normalizer's `search_terms`
+ * when present, otherwise derives them from the text with metaphors removed.
+ */
+export function searchTermsFor(input: ResearchInput): string[] {
+  const metaphors = new Set(metaphorTermsFor(input));
+  const fromNormalizer = (input.search_terms || [])
+    .map((t) => t.toLowerCase().trim())
+    .filter((t) => t && !metaphors.has(t));
+  if (fromNormalizer.length) return [...new Set(fromNormalizer)].slice(0, 8);
+
+  const words = `${input.title} ${input.description}`
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter(
+      (w) => w.length > 2 && !QUERY_STOP_WORDS.has(w) && !metaphors.has(w),
+    );
+  return [...new Set(words)].slice(0, 8);
+}
+
+/** Google-style negative terms so metaphor brands cannot dominate the results. */
+export function metaphorExclusions(input: ResearchInput): string {
+  return metaphorTermsFor(input)
+    .map((t) => `-${t}`)
+    .join(" ");
+}
+
+/** Builds a query from canonical terms plus intent, never from raw user phrasing. */
+function plan(input: ResearchInput, intent: string): string {
+  return [searchTermsFor(input).join(" "), intent, metaphorExclusions(input)]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
 export function competitorQueries(input: ResearchInput): string[] {
   const family = inferFamily(input);
   const job = input.job || input.title;
@@ -43,9 +114,9 @@ export function competitorQueries(input: ResearchInput): string[] {
     ];
   }
   return [
-    `${input.description} competitors alternatives`,
-    `${input.title} startup funding`,
-    `${input.title} vs competitors comparison`,
+    plan(input, "competitors alternatives"),
+    plan(input, "startup funding company"),
+    plan(input, "vs comparison market leaders"),
   ];
 }
 
@@ -59,9 +130,9 @@ export function gapsQueries(input: ResearchInput): string[] {
     ];
   }
   return [
-    `${input.description} pain points complaints frustrations`,
-    `${input.description} reddit complaints users`,
-    `${input.title} missing features reviews g2`,
+    plan(input, "pain points complaints frustrations"),
+    plan(input, "reddit user complaints"),
+    plan(input, "missing features reviews g2"),
   ];
 }
 
@@ -75,9 +146,31 @@ export function distributionQueries(input: ResearchInput): string[] {
     ];
   }
   return [
-    `${input.description} community forum subreddit discord`,
-    `${input.title} product hunt launch`,
-    `${input.description} how competitors acquired users`,
+    plan(input, "community forum subreddit discord"),
+    plan(input, "product hunt launch"),
+    plan(input, "how competitors acquired first users"),
+  ];
+}
+
+export function pricingQueries(input: ResearchInput, competitorNames: string): string[] {
+  return [
+    competitorNames
+      ? `${competitorNames} pricing plans tiers`
+      : plan(input, "pricing plans tiers"),
+    plan(input, "pricing comparison cost"),
+  ];
+}
+
+export function fundingQueries(
+  input: ResearchInput,
+  competitorNames: string,
+): string[] {
+  return [
+    plan(input, "market size TAM industry report"),
+    competitorNames
+      ? `${competitorNames} funding round raised`
+      : plan(input, "startup funding round raised"),
+    plan(input, "market growth rate forecast"),
   ];
 }
 
@@ -249,6 +342,47 @@ export function scrubGaps(gaps: any): any {
       }))
       .filter((p: any) => isUsableSourceUrl(p.source)),
   };
+}
+
+/**
+ * Market figures are the one place the model reliably guesses, and they sit in a
+ * report that claims every number traces to a page. Anything without a source URL
+ * that actually turned up in search is dropped.
+ */
+export function scrubMarketSize(marketSize: any, searchBlob = ""): any {
+  if (!marketSize || typeof marketSize !== "object") return marketSize;
+
+  const shared = (Array.isArray(marketSize.sources) ? marketSize.sources : [])
+    .filter(isUsableSourceUrl)
+    .filter((u: string) => !searchBlob || urlAppearsInSearch(u, searchBlob));
+
+  const next: any = { ...marketSize, sources: shared };
+
+  for (const key of ["tam", "sam", "som"] as const) {
+    const sourceKey = `${key}_source` as const;
+    const own = isUsableSourceUrl(marketSize[sourceKey])
+      ? marketSize[sourceKey]
+      : shared[0];
+    if (!next[key] || !own) {
+      next[key] = "";
+      next[sourceKey] = "";
+      continue;
+    }
+    next[key] = markStaleFigure(String(next[key]));
+    next[sourceKey] = own;
+  }
+
+  return next;
+}
+
+/** Flags a figure whose only year is old enough to mislead. */
+export function markStaleFigure(value: string, now = new Date()): string {
+  const years = (value.match(/\b(19|20)\d{2}\b/g) || []).map(Number);
+  if (!years.length) return value;
+  const latest = Math.max(...years);
+  if (latest >= now.getFullYear() - 2) return value;
+  if (/as of \d{4}/i.test(value)) return value;
+  return `${value.replace(/\s*$/, "")} (as of ${latest})`;
 }
 
 export function dropUnsourcedRounds(

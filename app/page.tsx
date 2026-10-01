@@ -20,7 +20,7 @@ const STEPS = [
   {
     n: "01",
     title: "Research",
-    line: "Live market scan — competitors, pricing, and demand signals.",
+    line: "Live market scan — competitors, pricing, GitHub overlap, and demand signals.",
   },
   {
     n: "02",
@@ -40,9 +40,9 @@ const STEPS = [
 ];
 
 const NAV = [
-  { href: "#how", label: "The method" },
+  { href: "#how", label: "How it works" },
+  { href: "#examples", label: "Live example" },
   { href: "#panel", label: "The room" },
-  { href: "#examples", label: "The wreck" },
 ];
 
 const SIDE = [
@@ -57,19 +57,41 @@ const AGENTS = [
   {
     icon: Briefcase,
     name: "VC Investor",
-    line: "Reading the dossier against a fundable market..",
+    line: "Reading the live research against a fundable market.",
   },
   {
     icon: Code2,
     name: "Senior Engineer",
-    line: "Counting the APIs, data, and failure modes..",
+    line: "Counting the APIs, data, and failure modes.",
   },
   {
     icon: ShieldAlert,
     name: "Devil's Advocate",
-    line: "Looking for the reason not to build this..",
+    line: "Looking for the reason not to build this.",
   },
 ];
+
+const PROOF = {
+  idea: "Multi-agent founder verdict — live research + ship/pivot/kill call",
+  verdict: "PIVOT",
+  score: "5/10",
+  duration: "49s",
+  sources: 75,
+  competitors: 6,
+  githubSignal: "Crowded",
+  githubMatches: 510,
+  competitorsList: [
+    "Preuve AI",
+    "Validator AI",
+    "IdeaProof",
+    "ValidatorAI",
+    "ChatGPT",
+    "Claude",
+  ],
+  gap: "Crowded space, weak differentiation — but forced verdict + live sources is a real wedge if narrowed.",
+  quote:
+    "The product is in a crowded space with niche market appeal and lacks strong differentiation — but the two-act format and live sources are a real wedge if narrowed.",
+};
 
 export default function LandingPage() {
   return (
@@ -93,27 +115,31 @@ export default function LandingPage() {
       <main>
         <section className="dx-hero">
           <div className="dx-copy">
-            <p className="dx-kicker">Seven AI agents · one verdict</p>
+            <p className="dx-kicker">Researched · adversarial · one verdict</p>
             <h1>
               Every reason
               <br />
               your idea <em>fails,</em>
               <br />
-              out loud.
+              before you build it.
             </h1>
             <p className="dx-sub">
-              Paste a startup idea. Seven agents research the live market and
-              take turns tearing it apart. A synthesizer is forced to pick a
-              side.
+              Paste your idea. Live research: competitors, pricing, GitHub
+              overlap.
+            </p>
+            <p className="dx-sub dx-sub-beat">
+              Then seven experts argue it out until one is forced to call it.
+              Ship, pivot, or kill.
             </p>
             <IdeaComposer />
-            <p className="dx-note">
-              Type the idea. Continue with email on this device. Two free
-              briefings.
+            <p className="dx-positioning">
+              Live web research, not a generic AI take — ~60 seconds, sources
+              cited.
             </p>
-            <p className="dx-after">
-              Nothing charges. Credits stay in this browser.
-            </p>
+            <a href="#examples" className="dx-see-example">
+              See what a real verdict looks like
+              <ArrowRight size={14} />
+            </a>
           </div>
 
           <div className="dx-stage" aria-hidden>
@@ -139,6 +165,61 @@ export default function LandingPage() {
           </ol>
         </section>
 
+        <section className="dx-proof" id="examples">
+          <div className="dx-proof-head">
+            <p className="dx-kicker">Live example</p>
+            <h2>Real verdict from a Debrief run.</h2>
+            <p className="dx-proof-sub">
+              This is what the product returned when validating itself — not
+              mock copy.
+            </p>
+          </div>
+
+          <div className="dx-proof-grid">
+            <article className="dx-proof-card dx-proof-verdict">
+              <span className="dx-proof-label">Verdict</span>
+              <strong className={`verdict-${PROOF.verdict.toLowerCase().replace(" ", "-")}`}>
+                {PROOF.verdict}
+              </strong>
+              <em>{PROOF.score} overall</em>
+              <p>{PROOF.duration} · {PROOF.sources} sources cited</p>
+            </article>
+
+            <article className="dx-proof-card">
+              <span className="dx-proof-label">Research</span>
+              <ul>
+                <li>
+                  <strong>{PROOF.competitors}</strong> competitors found
+                </li>
+                <li>
+                  GitHub signal: <strong>{PROOF.githubSignal.toLowerCase()}</strong>{" "}
+                  ({PROOF.githubMatches} repos)
+                </li>
+                <li>Pricing tiers extracted for 4 products</li>
+              </ul>
+            </article>
+
+            <article className="dx-proof-card">
+              <span className="dx-proof-label">Competitors surfaced</span>
+              <p className="dx-proof-tags">
+                {PROOF.competitorsList.map((name) => (
+                  <span key={name}>{name}</span>
+                ))}
+              </p>
+            </article>
+
+            <article className="dx-proof-card dx-proof-wide">
+              <span className="dx-proof-label">Market gap identified</span>
+              <p>{PROOF.gap}</p>
+            </article>
+
+            <article className="dx-proof-card dx-proof-wide">
+              <span className="dx-proof-label">Synthesis pull-quote</span>
+              <blockquote>&ldquo;{PROOF.quote}&rdquo;</blockquote>
+            </article>
+          </div>
+        </section>
+
         <section className="dx-board" id="panel">
           <aside>
             {SIDE.map(({ icon: Icon, label, on }) => (
@@ -149,12 +230,12 @@ export default function LandingPage() {
             ))}
           </aside>
 
-          <div className="dx-board-main" id="examples">
+          <div className="dx-board-main">
             <header>
-              <h2>Stripe-style API for carbon-offset audits</h2>
+              <h2>{PROOF.idea}</h2>
               <p>
                 <i />
-                Live briefing
+                Live verdict
               </p>
             </header>
 
@@ -173,14 +254,14 @@ export default function LandingPage() {
               </li>
             </ul>
 
-            <div className="dx-clock">2:34</div>
+            <div className="dx-clock">{PROOF.duration}</div>
 
             <footer>
               <span>
                 <i />
                 Live reasoning
               </span>
-              <span>Show all</span>
+              <span>{PROOF.sources} sources</span>
             </footer>
           </div>
         </section>
@@ -188,7 +269,7 @@ export default function LandingPage() {
         <section className="dx-close">
           <h2>If it can survive this room, it can survive a customer.</h2>
           <Link href="/brief" className="dx-cta">
-            Run a briefing
+            Get your verdict
             <ArrowRight size={16} />
           </Link>
         </section>

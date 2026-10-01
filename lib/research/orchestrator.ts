@@ -1,5 +1,6 @@
-import OpenAI from "openai";
-import { search } from "./search";
+import { getOpenAI } from "../openaiClient";
+import { search, type SearchResult } from "./search";
+import { filterRelevantResults } from "./relevance";
 import {
   competitorAgentPrompt,
   pricingAgentPrompt,
@@ -8,7 +9,13 @@ import {
   distributionAgentPrompt,
   positioningAgentPrompt,
   launchAgentPrompt,
+  githubAgentPrompt,
 } from "./agents";
+import {
+  fetchGithubLandscape,
+  mergeGithubAnalysis,
+  type GitHubLandscape,
+} from "./github";
 import { parseJson } from "./json";
 import type {
   ResearchInput,
@@ -21,11 +28,14 @@ import {
   distributionQueries,
   dropUnsourcedRounds,
   filterCompetitors,
+  fundingQueries,
   gapsQueries,
   inferFamily,
   isUsableSourceUrl,
+  pricingQueries,
   scrubCommunities,
   scrubGaps,
+  scrubMarketSize,
   scrubPositioning,
   seedCompetitorsFromSearch,
 } from "./quality";
@@ -35,12 +45,6 @@ import { quarantineScrapedMarkdown } from "../scrapeTrust";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 const RESEARCH_MODEL = process.env.OPENAI_RESEARCH_MODEL || "gpt-4o-mini";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 60_000,
-  maxRetries: 2,
-});
 
 // --- Report cache (in-memory, keyed by normalized input hash) ---
 
@@ -123,6 +127,41 @@ function isAbort(err: any): boolean {
   return err?.name === "AbortError" || /abort/i.test(err?.message || "");
 }
 
+const EXPAND_SYSTEM_PROMPT = `Turn a founder's short startup pitch into a research brief. The pitch is often an analogy ("X but for Y", "the Uber of Z"). Resolve it: the borrowed brand is a UI metaphor, not the market. "Tinder but for freelancers" is a freelance marketplace with swipe-based matching — it is NOT a dating product.
+
+Return raw JSON only, no markdown fences:
+{
+  "title": "concise product name or category, max 12 words",
+  "description": "2-3 sentences: what it does, for whom, and the workflow it replaces",
+  "job": "the job-to-be-done in one phrase",
+  "buyer": "who pays",
+  "family": "idea_validation | project_management | other",
+  "search_terms": ["3-6 canonical domain terms a market analyst would search; no brand metaphors"],
+  "metaphor_terms": ["tokens from the pitch that are UI analogies rather than market entities, lowercase; empty array if none"]
+}
+
+Rules:
+- search_terms must describe the real market ("freelance marketplace", "talent matching"), never the metaphor ("tinder", "swipe").
+- metaphor_terms must list every borrowed brand and interaction word you excluded.
+- Do not invent features the founder did not imply. Expand the category, not the product.`;
+
+const REWRITE_SYSTEM_PROMPT = `Rewrite noisy founder dictation into a concise startup research brief. Preserve the actual product (including multi-agent critique, VC vs engineer, ship/pivot/kill). Do not reframe as project management or "project evaluation software". Correct speech-to-text. Output only raw JSON: title, description, context, job, buyer, family (idea_validation | project_management | other), search_terms (3-6 canonical domain terms for market search), metaphor_terms (borrowed brand names used as analogies, lowercase, empty array if none).`;
+
+/** Short pitches carry no category or buyer, so they need expansion, not cleanup. */
+const TERSE_INPUT_CHARS = 240;
+
+function stringList(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value
+        .filter((v): v is string => typeof v === "string")
+        .map((v) => v.toLowerCase().trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, max);
+}
+
 async function normalizeResearchInput(
   input: ResearchInput,
   signal?: AbortSignal,
@@ -168,22 +207,24 @@ async function normalizeResearchInput(
     };
   };
 
-  if (raw.length < 240) return applyGuardrails(input);
+  // Terse input is the case that most needs work: it carries no category, no buyer,
+  // and leaks metaphor brands into every downstream query. Expand it rather than
+  // passing the raw phrasing through.
+  const terse = raw.length < TERSE_INPUT_CHARS;
 
   try {
-    const res = await openai.chat.completions.create(
+    const res = await getOpenAI().chat.completions.create(
       {
         model: RESEARCH_MODEL,
         messages: [
           {
             role: "system",
-            content:
-              'Rewrite noisy founder dictation into a concise startup research brief. Preserve the actual product (including multi-agent critique, VC vs engineer, ship/pivot/kill). Do not reframe as project management or "project evaluation software". Correct speech-to-text. Output only raw JSON: title, description, context, job, buyer, family (idea_validation | project_management | other).',
+            content: terse ? EXPAND_SYSTEM_PROMPT : REWRITE_SYSTEM_PROMPT,
           },
           { role: "user", content: raw.slice(0, 5000) },
         ],
         temperature: 0,
-        max_tokens: 400,
+        max_tokens: 500,
       },
       { signal },
     );
@@ -194,9 +235,10 @@ async function normalizeResearchInput(
       familyRaw === "idea_validation" || familyRaw === "project_management"
         ? familyRaw
         : undefined;
+    const description = String(parsed.description).trim().slice(0, 800);
     return applyGuardrails({
       title: String(parsed.title).trim().slice(0, 180),
-      description: String(parsed.description).trim().slice(0, 800),
+      description,
       context:
         [input.context, parsed.context]
           .filter(Boolean)
@@ -207,6 +249,10 @@ async function normalizeResearchInput(
         ? String(parsed.buyer).trim().slice(0, 200)
         : input.buyer,
       family,
+      search_terms: stringList(parsed.search_terms, 8),
+      metaphor_terms: stringList(parsed.metaphor_terms, 8),
+      // Flag only a material expansion, so the UI can offer a correction.
+      inferred: terse && description.trim() !== input.description.trim(),
     });
   } catch {
     return applyGuardrails(input);
@@ -225,7 +271,7 @@ async function llmExtract(
   // One retry for transient failures (network errors, malformed JSON output)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await openai.chat.completions.create(
+      const res = await getOpenAI().chat.completions.create(
         {
           model: RESEARCH_MODEL,
           messages: [
@@ -259,6 +305,12 @@ async function llmExtract(
 
 // --- Source collection ---
 
+/** Accumulates evidence across agents: what we kept, and what we threw away. */
+type Evidence = {
+  sources: SourceLink[];
+  discarded: number;
+};
+
 /** Dedupes raw search results into source links attributed to one dossier section. */
 function toSourceLinks(
   section: string,
@@ -274,25 +326,73 @@ function toSourceLinks(
   return links;
 }
 
+/**
+ * Runs the planned queries and drops off-topic hits before any agent or the
+ * source list sees them.
+ */
+async function searchRelevant(
+  idea: ResearchInput,
+  queries: string[],
+  section: string,
+  evidence?: Evidence,
+): Promise<SearchResult[]> {
+  const batches = await Promise.all(
+    queries.map((q) => search({ query: q, numResults: 5 })),
+  );
+  const { kept, dropped } = filterRelevantResults(batches.flat(), idea);
+  if (evidence) {
+    evidence.sources.push(...toSourceLinks(section, kept));
+    evidence.discarded += dropped;
+  }
+  return kept;
+}
+
+/** Every URL the finished dossier actually leans on. */
+function citedUrls(result: Omit<ResearchResult, "sources">): Set<string> {
+  const urls = new Set<string>();
+  const add = (u?: string | null) => {
+    if (isUsableSourceUrl(u)) urls.add(u);
+  };
+
+  for (const c of result.competitors || []) {
+    add(c.url);
+    for (const u of c.source_urls || []) add(u);
+  }
+  for (const p of result.gaps?.pain_points || []) add(p.source);
+  for (const c of result.distribution?.communities || []) add(c.url);
+  for (const u of result.funding?.market_size?.sources || []) add(u);
+  for (const r of result.github?.repos || []) add(r.url);
+
+  return urls;
+}
+
+/** Flags the sources a dossier field references, so the UI can lead with those. */
+export function markCitedSources(
+  sources: SourceLink[],
+  result: Omit<ResearchResult, "sources">,
+): SourceLink[] {
+  const cited = citedUrls(result);
+  return sources.map((s) => ({ ...s, cited: cited.has(s.url) }));
+}
+
 // --- Agent: Competitor Discovery ---
 
 async function runCompetitorAgent(
   idea: ResearchInput,
   enqueue: (e: string) => void,
   signal?: AbortSignal,
-  sources?: SourceLink[],
+  evidence?: Evidence,
 ) {
   enqueue(
     sseEvent({ type: "status", agent: "competitors", status: "searching" }),
   );
 
-  const queries = competitorQueries(idea);
-
-  const searchResults = await Promise.all(
-    queries.map((q) => search({ query: q, numResults: 5 })),
+  const allResults = await searchRelevant(
+    idea,
+    competitorQueries(idea),
+    "competitors",
+    evidence,
   );
-  const allResults = searchResults.flat();
-  if (sources) sources.push(...toSourceLinks("competitors", allResults));
 
   const context = `IDEA: ${idea.title}\n${idea.description}\n${
     idea.context ? `\nCONTEXT: ${idea.context}` : ""
@@ -328,27 +428,23 @@ async function runPricingAgent(
   competitors: any[],
   enqueue: (e: string) => void,
   signal?: AbortSignal,
-  sources?: SourceLink[],
+  evidence?: Evidence,
 ) {
   enqueue(sseEvent({ type: "status", agent: "pricing", status: "searching" }));
 
   const competitorNames = competitors.map((c) => c.name).join(", ");
-  const queries = [
-    `${competitorNames || idea.title} pricing plans tiers`,
-    `${idea.title} pricing comparison software`,
-  ];
-
-  const searchResults = await Promise.all(
-    queries.map((q) => search({ query: q, numResults: 5 })),
+  const allResults = await searchRelevant(
+    idea,
+    pricingQueries(idea, competitorNames),
+    "pricing",
+    evidence,
   );
-  const allResults = searchResults.flat();
-  if (sources) sources.push(...toSourceLinks("pricing", allResults));
 
   enqueue(sseEvent({ type: "status", agent: "pricing", status: "scraping" }));
   const pageUrls = pricingPageUrls(competitors, allResults);
   const scraped = await scrapePricingPages(pageUrls, signal);
-  if (sources) {
-    sources.push(
+  if (evidence) {
+    evidence.sources.push(
       ...toSourceLinks(
         "pricing",
         scraped.map((p) => ({ title: p.url, url: p.url })),
@@ -390,7 +486,7 @@ async function runFundingAgent(
   competitors: any[],
   enqueue: (e: string) => void,
   signal?: AbortSignal,
-  sources?: SourceLink[],
+  evidence?: Evidence,
 ) {
   enqueue(sseEvent({ type: "status", agent: "funding", status: "searching" }));
 
@@ -403,11 +499,7 @@ async function runFundingAgent(
           `${competitorNames || "OpenAI Anthropic"} funding rounds raised`,
           "AI copilot SaaS startup funding 2024 2025",
         ]
-      : [
-          `${idea.description} market size TAM 2024 2025`,
-          `${competitorNames} funding rounds raised`,
-          `${idea.title} market growth rate`,
-        ];
+      : fundingQueries(idea, competitorNames);
 
   const searchResults = await Promise.all(
     queries.map((q, i) =>
@@ -419,8 +511,12 @@ async function runFundingAgent(
       }),
     ),
   );
-  const allResults = searchResults.flat();
-  if (sources) sources.push(...toSourceLinks("market", allResults));
+  const filtered = filterRelevantResults(searchResults.flat(), idea);
+  const allResults = filtered.kept;
+  if (evidence) {
+    evidence.sources.push(...toSourceLinks("market", allResults));
+    evidence.discarded += filtered.dropped;
+  }
 
   const context = `IDEA: ${idea.title}\n${idea.description}\n\nSEARCH RESULTS:\n${allResults
     .map((r) => `[${r.title}](${r.url}) — ${r.snippet}`)
@@ -437,6 +533,9 @@ async function runFundingAgent(
     enqueue,
     signal,
   );
+  if (data?.market_size) {
+    data.market_size = scrubMarketSize(data.market_size, searchBlob);
+  }
   if (data?.funding_landscape?.notable_rounds) {
     let rounds = dropUnsourcedRounds(
       data.funding_landscape.notable_rounds,
@@ -460,23 +559,88 @@ async function runFundingAgent(
   return data;
 }
 
+// --- Agent: GitHub landscape ---
+
+async function runGithubAgent(
+  idea: ResearchInput,
+  enqueue: (e: string) => void,
+  signal?: AbortSignal,
+  evidence?: Evidence,
+): Promise<GitHubLandscape | null> {
+  enqueue(sseEvent({ type: "status", agent: "github", status: "searching" }));
+
+  const { repos, queries, total, error } = await fetchGithubLandscape(idea, signal);
+
+  if (evidence) {
+    evidence.sources.push(
+      ...repos.slice(0, 8).map((r) => ({
+        section: "github",
+        title: `${r.full_name} (${r.stargazers_count}★)`,
+        url: r.html_url,
+      })),
+    );
+  }
+
+  if (!repos.length) {
+    const empty: GitHubLandscape = {
+      queries,
+      total_matches: total,
+      signal: "open",
+      summary: error
+        ? `GitHub scan skipped: ${error}`
+        : "No closely matching open-source repos surfaced on GitHub.",
+      repos: [],
+      unavailable: Boolean(error),
+      note: error,
+    };
+    enqueue(sseEvent({ type: "github", data: empty }));
+    enqueue(sseEvent({ type: "status", agent: "github", status: "done" }));
+    return empty;
+  }
+
+  enqueue(sseEvent({ type: "status", agent: "github", status: "analyzing" }));
+
+  const repoBlock = repos
+    .map(
+      (r) =>
+        `- ${r.full_name} (${r.stargazers_count}★, ${r.forks_count} forks): ${r.description || "no description"} | ${r.html_url}`,
+    )
+    .join("\n");
+
+  const context = `IDEA: ${idea.title}\n${idea.description}\n\nGITHUB SEARCH QUERIES:\n${queries.join("\n")}\n\nGITHUB RESULTS (API — do not invent others):\n${repoBlock}`;
+
+  const analysis = await llmExtract(
+    githubAgentPrompt,
+    context,
+    "github",
+    enqueue,
+    signal,
+  );
+
+  const landscape = mergeGithubAnalysis(repos, analysis, total, queries);
+  if (error) landscape.note = error;
+
+  enqueue(sseEvent({ type: "github", data: landscape }));
+  enqueue(sseEvent({ type: "status", agent: "github", status: "done" }));
+  return landscape;
+}
+
 // --- Agent: Market Gaps ---
 
 async function runGapsAgent(
   idea: ResearchInput,
   enqueue: (e: string) => void,
   signal?: AbortSignal,
-  sources?: SourceLink[],
+  evidence?: Evidence,
 ) {
   enqueue(sseEvent({ type: "status", agent: "gaps", status: "searching" }));
 
-  const queries = gapsQueries(idea);
-
-  const searchResults = await Promise.all(
-    queries.map((q) => search({ query: q, numResults: 5 })),
+  const allResults = await searchRelevant(
+    idea,
+    gapsQueries(idea),
+    "gaps",
+    evidence,
   );
-  const allResults = searchResults.flat();
-  if (sources) sources.push(...toSourceLinks("gaps", allResults));
 
   const context = `IDEA: ${idea.title}\n${idea.description}\n\nSEARCH RESULTS:\n${allResults
     .map((r) => `[${r.title}](${r.url}) — ${r.snippet}`)
@@ -502,19 +666,18 @@ async function runDistributionAgent(
   idea: ResearchInput,
   enqueue: (e: string) => void,
   signal?: AbortSignal,
-  sources?: SourceLink[],
+  evidence?: Evidence,
 ) {
   enqueue(
     sseEvent({ type: "status", agent: "distribution", status: "searching" }),
   );
 
-  const queries = distributionQueries(idea);
-
-  const searchResults = await Promise.all(
-    queries.map((q) => search({ query: q, numResults: 5 })),
+  const allResults = await searchRelevant(
+    idea,
+    distributionQueries(idea),
+    "distribution",
+    evidence,
   );
-  const allResults = searchResults.flat();
-  if (sources) sources.push(...toSourceLinks("distribution", allResults));
 
   const context = `IDEA: ${idea.title}\n${idea.description}\n\nSEARCH RESULTS:\n${allResults
     .map((r) => `[${r.title}](${r.url}) — ${r.snippet}`)
@@ -641,6 +804,9 @@ function replayCachedReport(
   enqueue(sseEvent({ type: "distribution", data: cached.result.distribution }));
   enqueue(sseEvent({ type: "positioning", data: cached.result.positioning }));
   enqueue(sseEvent({ type: "launch", data: cached.result.launch }));
+  if (cached.result.github) {
+    enqueue(sseEvent({ type: "github", data: cached.result.github }));
+  }
   enqueue(
     sseEvent({
       type: "done",
@@ -657,20 +823,24 @@ async function computeResearch(
   signal?: AbortSignal,
 ): Promise<{ result: ResearchResult; reportId: string; elapsed: string }> {
   const startTime = Date.now();
-  const sources: SourceLink[] = [];
+  const evidence: Evidence = { sources: [], discarded: 0 };
 
   enqueue(sseEvent({ type: "status", agent: "research", status: "starting" }));
 
-  const [competitors, gaps, distribution] = await Promise.all([
-    runCompetitorAgent(researchInput, enqueue, signal, sources).catch((e) => {
+  const [competitors, gaps, distribution, github] = await Promise.all([
+    runCompetitorAgent(researchInput, enqueue, signal, evidence).catch((e) => {
       if (isAbort(e)) throw e;
       return null;
     }),
-    runGapsAgent(researchInput, enqueue, signal, sources).catch((e) => {
+    runGapsAgent(researchInput, enqueue, signal, evidence).catch((e) => {
       if (isAbort(e)) throw e;
       return null;
     }),
-    runDistributionAgent(researchInput, enqueue, signal, sources).catch((e) => {
+    runDistributionAgent(researchInput, enqueue, signal, evidence).catch((e) => {
+      if (isAbort(e)) throw e;
+      return null;
+    }),
+    runGithubAgent(researchInput, enqueue, signal, evidence).catch((e) => {
       if (isAbort(e)) throw e;
       return null;
     }),
@@ -682,7 +852,7 @@ async function computeResearch(
       competitors || [],
       enqueue,
       signal,
-      sources,
+      evidence,
     ).catch((e) => {
       if (isAbort(e)) throw e;
       return null;
@@ -692,7 +862,7 @@ async function computeResearch(
       competitors || [],
       enqueue,
       signal,
-      sources,
+      evidence,
     ).catch((e) => {
       if (isAbort(e)) throw e;
       return null;
@@ -751,8 +921,10 @@ async function computeResearch(
       job: researchInput.job,
       buyer: researchInput.buyer,
       family: researchInput.family,
+      inferred: researchInput.inferred,
     },
-    sources,
+    sources: evidence.sources,
+    discardedSources: evidence.discarded,
     competitors: researchData.competitors,
     pricing: researchData.pricing,
     funding: researchData.funding,
@@ -772,7 +944,9 @@ async function computeResearch(
       phase_3_post_launch: { timeline: "", actions: [] },
       kpis: [],
     },
+    github: github || null,
   };
+  result.sources = markCitedSources(evidence.sources, result);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
   const reportId = `report_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -796,6 +970,7 @@ export async function runResearch(
         job: researchInput.job,
         buyer: researchInput.buyer,
         family: researchInput.family,
+        inferred: researchInput.inferred,
       },
     }),
   );

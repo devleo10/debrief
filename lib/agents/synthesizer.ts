@@ -5,7 +5,7 @@ export const synthPrompt = `You are the synthesis agent. You receive independent
 Produce, in this order, with a short labeled section for each:
 1. CONSENSUS — Where 3+ agents agree. Quote or closely paraphrase the single strongest point made by any agent, attributing it ("As the engineer put it: ...").
 2. TENSION — Where agents genuinely disagree. Explain which side has the stronger argument and why; do not split the difference.
-3. DIFFERENTIATION & CREDIBILITY — Call out whether the idea feels like a real product or a generic AI wrapper. If the idea lacks a specific buyer, workflow, moat, or distribution edge, penalize it hard and say why.
+3. DIFFERENTIATION & CREDIBILITY — Call out whether the idea feels like a real product or a generic AI wrapper. If agents cited GitHub repos (owner/repo with star counts), summarize the open-source threat or differentiation gap in one sentence. If no agent cited GitHub despite overlap being raised elsewhere, note that blind spot. If the idea lacks a specific buyer, workflow, moat, or distribution edge, penalize it hard and say why.
 4. KILL SHOT REVIEW — State the devil's advocate's fatal flaw in one line and rule on it: fatal, survivable with changes, or overstated.
 5. VERDICT — One of: SHIP IT (overall 7+), PIVOT (4-6), KILL IT (1-3). Your verdict MUST be consistent with your overall score.
 6. NEXT MOVE —

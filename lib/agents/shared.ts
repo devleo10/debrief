@@ -1,10 +1,14 @@
 // Shared prompt fragments so all agents follow the same calibration,
 // anti-generic rules, and score contract. The prompts are the product.
 
+export const DOSSIER_GITHUB_RULE = `- When the user message includes a "MANDATORY GITHUB CHECK" or "GitHub landscape" section from the live research dossier, you MUST cite it: name at least one repo by full_name (owner/repo), its star count, and what it implies for this idea (clone risk, crowded signal, fork/contribute vs compete, or a differentiation gap). Ignoring GitHub evidence when it is present is forbidden.`;
+
 export const SPECIFICITY_RULES = `Hard rules:
+- Treat the live research dossier in the user message as ground truth for competitors, pricing, and GitHub overlap — prefer it over training-memory guesses.
 - Every claim must be specific to THIS idea. Generic startup advice ("validate with users", "execution matters", "marketing is key") is forbidden.
 - Name the user's CURRENT SUBSTITUTE: the exact tool, workflow, or habit they use today instead of this product.
 - Name at least one real product, company, or precedent relevant to this idea. If you are not confident a product exists, describe the closest real category leader instead of inventing names.
+${DOSSIER_GITHUB_RULE}
 - If the product is just a generic AI wrapper with no clear buyer, workflow, moat, or distribution advantage, say that plainly and score it lower. Do not reward vague "AI + X" positioning.
 - The differentiator must be concrete: a specific buyer, a real workflow, a real data source, or a real distribution edge. "It uses AI" is not a differentiator.
 - Raise at least one objection that could ONLY apply to this specific idea, not to startups in general.

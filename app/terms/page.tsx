@@ -12,6 +12,12 @@ export default function TermsPage() {
         responsible for how you use it.
       </p>
       <p>
+        The Debrief service, source, prompts, design, and copy are proprietary.
+        You get a personal license to use the hosted product. You do not get
+        rights to copy the codebase, prompts, or product to run a competing
+        service or to make money from a derivative. See the repository LICENSE.
+      </p>
+      <p>
         We may rate-limit or refuse runs that look abusive. You must not use the
         service to attack systems, scrape in violation of third-party terms
         beyond what our providers already allow, or submit unlawful content.

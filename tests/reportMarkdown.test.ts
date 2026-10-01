@@ -62,6 +62,7 @@ describe("buildReportMarkdown", () => {
         distribution: null as never,
         positioning: null as never,
         launch: null as never,
+        github: null,
       },
     });
     expect(md).toContain("[Geekbot](https://geekbot.com)");

@@ -1,8 +1,19 @@
-import OpenAI from "openai";
+import {
+  CreditError,
+  refundCreditForUser,
+  spendCreditForUser,
+  parseIdempotencyKey,
+} from "@/lib/auth/serverCredits";
+import { getOpenAI } from "@/lib/openaiClient";
 import { runResearch } from "@/lib/research/orchestrator";
 import { admitRequest, releaseRequest, startLimiter } from "@/lib/rateLimit";
+import {
+  isSupabaseAuthConfigured,
+  isSupabaseServerConfigured,
+} from "@/lib/supabase/config";
+import { createClient } from "@/lib/supabase/server";
 import { liveSearchConfigured } from "@/lib/searchConfig";
-import { buildDossierForAgents } from "@/lib/dossier";
+import { buildAgentResearchContext } from "@/lib/dossier";
 import {
   clientIp,
   originAllowed,
@@ -32,15 +43,8 @@ export const maxDuration = 300;
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 const REPAIR_MODEL = process.env.OPENAI_REPAIR_MODEL || "gpt-4o-mini";
-const AGENT_TIMEOUT_MS = 60_000;
 const MAX_FIELD_CHARS = 2_000;
 const MAX_IDEA_CHARS = 10_000;
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: AGENT_TIMEOUT_MS,
-  maxRetries: 2,
-});
 
 type AgentSpec = {
   name: string;
@@ -78,7 +82,7 @@ async function complete(
   user: string,
   opts: { maxTokens: number; temperature: number; model?: string },
 ): Promise<string> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: opts.model || MODEL,
     messages: [
       { role: "system", content: system },
@@ -144,10 +148,27 @@ async function runAgents(
   );
 }
 
+type SourceCounts = { cited: number; fetched: number; discarded: number };
+
+/** Cited sources are the honest headline; fetched pages include unused noise. */
+function sourceCounts(research: {
+  sources?: { cited?: boolean }[];
+  discardedSources?: number;
+}): SourceCounts {
+  const all = research.sources || [];
+  const cited = all.filter((s) => s.cited).length;
+  return {
+    // Before any claim is attributed, fall back to the fetched count.
+    cited: cited || all.length,
+    fetched: all.length,
+    discarded: research.discardedSources || 0,
+  };
+}
+
 async function runSynthesis(
   agentResults: AgentResult[],
   enqueue: (chunk: string) => void,
-  sources = 0,
+  counts: SourceCounts = { cited: 0, fetched: 0, discarded: 0 },
 ): Promise<{
   synthesis: ValidateResponse["synthesis"];
   fallback: boolean;
@@ -197,14 +218,16 @@ async function runSynthesis(
     if (verdict) output = `<verdict>${verdict}</verdict>\n\n${output}`;
   }
 
-  output = maybeDowngradeShip(output, sources);
+  output = maybeDowngradeShip(output, counts.cited);
   const synthesis = { output, scores };
   enqueue(sseEvent("synthesis", synthesis));
   enqueue(
     sseEvent("integrity", {
       type: "integrity",
       fallback,
-      sources,
+      sources: counts.cited,
+      fetched: counts.fetched,
+      discarded: counts.discarded,
       agentFailures: agentResults.filter((r) => r.error).length,
     }),
   );
@@ -291,30 +314,110 @@ export async function POST(req: Request) {
     );
   }
 
-  const admitted = await admitRequest(ip);
-  if (admitted === "misconfigured") {
+  let creditUserId: string | null = null;
+  let creditCharged = false;
+  let ipCharged = false;
+  const idempotencyKey = req.headers.get("Idempotency-Key");
+
+  if (isSupabaseAuthConfigured()) {
+    if (!isSupabaseServerConfigured()) {
+      return Response.json(
+        {
+          error:
+            "Server misconfigured: SUPABASE_SERVICE_ROLE_KEY is required when Supabase auth is enabled.",
+        },
+        { status: 503 },
+      );
+    }
+
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user?.email) {
+      return Response.json(
+        { error: "Sign in to run a briefing." },
+        { status: 401 },
+      );
+    }
+
+    const key = parseIdempotencyKey(idempotencyKey);
+    if (!key) {
+      return Response.json(
+        { error: "Missing or invalid Idempotency-Key header." },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const result = await spendCreditForUser(
+        user.id,
+        user.email,
+        undefined,
+        key,
+      );
+      creditUserId = user.id;
+      creditCharged = result.chargedThisRequest;
+    } catch (err) {
+      if (err instanceof CreditError && err.code === "insufficient") {
+        return Response.json({ error: "No briefings left." }, { status: 402 });
+      }
+      const message =
+        err instanceof Error ? err.message : "Could not verify account.";
+      return Response.json({ error: message }, { status: 500 });
+    }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_LOCAL_AUTH !== "1"
+  ) {
     return Response.json(
-      {
-        error:
-          "Production rate limits need Upstash Redis (UPSTASH_REDIS_REST_URL + TOKEN), or set ALLOW_INMEMORY_LIMITS=1.",
-      },
-      { status: 500 },
+      { error: "Sign-in is required. Supabase auth is not configured." },
+      { status: 503 },
     );
-  }
-  if (admitted === "quota") {
-    return Response.json(
-      {
-        error:
-          "You've used both free briefings on this network today. Paid plans are coming.",
-      },
-      { status: 429 },
-    );
+  } else {
+    const admitted = await admitRequest(ip);
+    if (admitted === "misconfigured") {
+      return Response.json(
+        {
+          error:
+            "Production rate limits need Upstash Redis (UPSTASH_REDIS_REST_URL + TOKEN), or set ALLOW_INMEMORY_LIMITS=1.",
+        },
+        { status: 500 },
+      );
+    }
+    if (admitted === "quota") {
+      return Response.json(
+        {
+          error:
+            "You've used both free briefings on this network today. Paid plans are coming.",
+        },
+        { status: 429 },
+      );
+    }
+    ipCharged = true;
   }
 
-  let charged = true;
-  const refund = async () => {
-    if (!charged) return;
-    charged = false;
+  const refund = async (note?: string) => {
+    if (creditCharged && creditUserId) {
+      creditCharged = false;
+      try {
+        await refundCreditForUser(
+          creditUserId,
+          undefined,
+          idempotencyKey,
+          note ?? "briefing_failed",
+        );
+      } catch (err) {
+        console.error(
+          "[credits] refund after briefing failure:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+      return;
+    }
+    if (!ipCharged) return;
+    ipCharged = false;
     await releaseRequest(ip);
   };
 
@@ -364,13 +467,14 @@ export async function POST(req: Request) {
         { skipCache },
       );
       const agentResults = await runAgents(
-        `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
+        `${ideaText}\n\n${buildAgentResearchContext(researchResult)}`,
         () => {},
       );
+      const counts = sourceCounts(researchResult);
       const { synthesis, fallback } = await runSynthesis(
         agentResults,
         () => {},
-        researchResult.sources?.length || 0,
+        counts,
       );
       return Response.json({
         research: researchResult,
@@ -379,12 +483,14 @@ export async function POST(req: Request) {
         integrity: {
           type: "integrity",
           fallback,
-          sources: researchResult.sources?.length || 0,
+          sources: counts.cited,
+          fetched: counts.fetched,
+          discarded: counts.discarded,
           agentFailures: agentResults.filter((r) => r.error).length,
         },
       });
     } catch (err: any) {
-      await refund();
+      await refund("json_briefing_error");
       return Response.json(
         { error: err.message || "Unknown error" },
         { status: 500 },
@@ -431,20 +537,16 @@ export async function POST(req: Request) {
 
         enqueue(sseEvent("status", { phase: "validate", status: "starting" }));
         const agentResults = await runAgents(
-          `${ideaText}\n\n${buildDossierForAgents(researchResult)}`,
+          `${ideaText}\n\n${buildAgentResearchContext(researchResult)}`,
           enqueue,
         );
         if (abortController.signal.aborted) throw new Error("Cancelled");
 
-        await runSynthesis(
-          agentResults,
-          enqueue,
-          researchResult.sources?.length || 0,
-        );
+        await runSynthesis(agentResults, enqueue, sourceCounts(researchResult));
 
         enqueue(sseEvent("done", {}));
       } catch (err: any) {
-        await refund();
+        await refund("briefing_stream_error");
         enqueue(
           sseEvent("error", {
             message:

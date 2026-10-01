@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   competitorFitsFrame,
   competitorQueries,
+  distributionQueries,
   dropUnsourcedRounds,
   filterCompetitors,
+  gapsQueries,
   inferFamily,
+  markStaleFigure,
+  metaphorTermsFor,
   scrubGaps,
+  scrubMarketSize,
   scrubPainFrequency,
   scrubPositioning,
+  searchTermsFor,
 } from "@/lib/research/quality";
 import type { Competitor } from "@/lib/research/types";
 
@@ -28,6 +34,117 @@ describe("inferFamily", () => {
         description: "VC and engineer should i ship it or not",
       }),
     ).toBe("idea_validation");
+  });
+});
+
+describe("query planning for analogical input", () => {
+  // The run that motivated this: "tinder but for freelancers" searched the literal
+  // word "tinder" and returned dating clips and campfire kindling.
+  const raw = {
+    title: "tinder but for freelancers",
+    description: "tinder but for freelancers",
+  };
+  const normalized = {
+    title: "Freelance matching platform",
+    description: "A marketplace matching freelancers to clients via swiping.",
+    search_terms: ["freelance marketplace", "talent matching"],
+    metaphor_terms: ["tinder", "swipe"],
+  };
+
+  it("treats a borrowed brand in an 'X for Y' pitch as a metaphor", () => {
+    expect(metaphorTermsFor(raw)).toContain("tinder");
+  });
+
+  it("does not strip a brand when the idea is actually about that brand", () => {
+    expect(
+      metaphorTermsFor({
+        title: "Tinder profile analytics",
+        description: "Analytics dashboard sold to Tinder power users.",
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps metaphor terms out of the canonical search terms", () => {
+    expect(searchTermsFor(normalized)).not.toContain("tinder");
+    expect(searchTermsFor(raw)).not.toContain("tinder");
+  });
+
+  it("never emits a bare metaphor term in any planned query", () => {
+    for (const input of [raw, normalized]) {
+      const queries = [
+        ...competitorQueries(input),
+        ...gapsQueries(input),
+        ...distributionQueries(input),
+      ];
+      for (const q of queries) {
+        expect(q).not.toMatch(/(^|\s)tinder\b/i);
+        expect(q).toMatch(/-tinder/);
+      }
+    }
+  });
+
+  it("searches the real market once the input is normalized", () => {
+    const q = competitorQueries(normalized).join(" ").toLowerCase();
+    expect(q).toMatch(/freelance/);
+    expect(q).toMatch(/marketplace|matching/);
+  });
+});
+
+describe("scrubMarketSize", () => {
+  const blob = "https://grandviewresearch.com/freelance-platforms grandviewresearch.com";
+
+  it("drops a figure with no source", () => {
+    const out = scrubMarketSize(
+      { tam: "$455 billion by 2023", sam: "", som: "", sources: [] },
+      blob,
+    );
+    expect(out.tam).toBe("");
+  });
+
+  it("keeps a figure attributed to a page that turned up in search", () => {
+    const out = scrubMarketSize(
+      {
+        tam: "$24.2 billion by 2033",
+        tam_source: "https://grandviewresearch.com/freelance-platforms",
+        sam: "",
+        som: "",
+        sources: [],
+      },
+      blob,
+    );
+    expect(out.tam).toContain("24.2");
+    expect(out.tam_source).toContain("grandviewresearch");
+  });
+
+  it("falls back to the shared source list for an unattributed figure", () => {
+    const out = scrubMarketSize(
+      {
+        tam: "$24.2 billion by 2033",
+        sam: "",
+        som: "",
+        sources: ["https://grandviewresearch.com/freelance-platforms"],
+      },
+      blob,
+    );
+    expect(out.tam).toContain("24.2");
+  });
+});
+
+describe("markStaleFigure", () => {
+  const now = new Date("2026-09-19");
+
+  it("flags a figure whose year is well behind the report", () => {
+    expect(markStaleFigure("$455 billion by 2023", now)).toContain("(as of 2023)");
+  });
+
+  it("leaves a current figure alone", () => {
+    expect(markStaleFigure("$24.2 billion by 2033", now)).toBe(
+      "$24.2 billion by 2033",
+    );
+  });
+
+  it("leaves a figure with no year alone", () => {
+    expect(markStaleFigure("roughly $10 billion", now)).toBe("roughly $10 billion");
   });
 });
 

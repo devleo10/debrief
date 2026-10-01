@@ -6,9 +6,14 @@ export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy">
       <p>
-        Debrief stores a lightweight session in your browser: the email you
-        enter, remaining briefing credits, and past verdicts (localStorage).
-        This is not a server account, and we do not verify the email.
+        When Supabase auth is enabled, we store your account email and remaining
+        briefing credits in our database. Sign-in uses a one-time email link; we
+        do not store passwords.
+      </p>
+      <p>
+        If auth is not configured, Debrief falls back to a lightweight session in
+        your browser (email you enter, credits, and past verdicts in localStorage).
+        That mode is for local development only.
       </p>
       <p>
         When you run a briefing, we send the idea text to model and search

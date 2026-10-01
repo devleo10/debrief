@@ -12,9 +12,24 @@ import {
   Globe,
   Users,
   MapPin,
+  Code2,
+  Star,
 } from "lucide-react";
-import type { Competitor, Positioning, LaunchStrategy, SourceLink, ResearchResult } from "@/lib/research/types";
+import type {
+  Competitor,
+  Positioning,
+  LaunchStrategy,
+  SourceLink,
+  ResearchResult,
+  GitHubLandscape,
+} from "@/lib/research/types";
+import { formatStarCount } from "@/lib/research/github";
 import { isUsableSourceUrl } from "@/lib/safeUrl";
+import {
+  opportunityLabel,
+  pitchSectionNote,
+  pitchSectionTitle,
+} from "@/lib/verdictFraming";
 import type { ReactNode } from "react";
 
 function ExternalHref({
@@ -37,17 +52,20 @@ function ExternalHref({
 }
 
 export function BriefFrameSection({ brief }: { brief: NonNullable<ResearchResult["brief"]> }) {
+  // The description repeats the title verbatim when the input was never expanded.
+  const description =
+    brief.description && brief.description.trim() !== brief.title.trim()
+      ? brief.description
+      : null;
+
   return (
     <section className="report-section" aria-label="How we read this idea">
       <h2><Search size={16} /> How we framed this idea</h2>
       <p>{brief.title}</p>
-      {brief.family ? (
-        <div className="competitor-detail"><strong>Family:</strong> {brief.family}</div>
-      ) : null}
+      {description ? <p>{description}</p> : null}
       {brief.job ? (
         <div className="competitor-detail"><strong>Job:</strong> {brief.job}</div>
       ) : null}
-      {brief.description ? <p>{brief.description}</p> : null}
     </section>
   );
 }
@@ -78,16 +96,78 @@ export function CompetitorsSection({ competitors }: { competitors: Competitor[] 
   );
 }
 
+export function GitHubSection({ github }: { github: GitHubLandscape }) {
+  if (!github.repos?.length && !github.summary) return null;
+
+  const signalLabel =
+    github.signal === "crowded"
+      ? "Crowded OSS space"
+      : github.signal === "moderate"
+        ? "Some OSS traction"
+        : "Few OSS players";
+
+  return (
+    <section className="report-section" aria-label="GitHub landscape">
+      <h2><Code2 size={16} /> GitHub ({github.repos.length} repos)</h2>
+      <div className="github-summary">
+        <span className={`github-signal ${github.signal}`}>{signalLabel}</span>
+        <p>{github.summary}</p>
+        {github.total_matches > 0 && (
+          <p className="github-meta">
+            ~{github.total_matches.toLocaleString()} repos match the search on GitHub
+          </p>
+        )}
+        {github.note && <p className="github-note">{github.note}</p>}
+      </div>
+      {github.repos.length > 0 && (
+        <div className="github-grid">
+          {github.repos.map((r) => (
+            <div key={r.full_name} className="github-card">
+              <div className="github-card-head">
+                <ExternalHref href={r.url} className="github-repo-name">
+                  {r.full_name}
+                </ExternalHref>
+                <span className={`github-relevance ${r.relevance.toLowerCase()}`}>
+                  {r.relevance}
+                </span>
+              </div>
+              <p className="github-desc">{r.description}</p>
+              <p className="github-overlap">{r.overlap}</p>
+              <div className="github-stats">
+                <span><Star size={12} /> {formatStarCount(r.stars)}</span>
+                <span>{formatStarCount(r.forks)} forks</span>
+                {r.language && <span>{r.language}</span>}
+                <span className={`github-tier ${r.popularity_tier}`}>{r.popularity_tier}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function PricingSection({ pricing }: { pricing: any }) {
+  // A competitor whose tiers never got extracted renders as a bare heading.
+  const priced = (pricing.competitors || []).filter(
+    (p: any) => p?.name && p.tiers?.length > 0,
+  );
+  // "Price below median, or premium to signal quality" covers both directions.
+  const recommendation = /\d/.test(String(pricing.recommended_positioning || ""))
+    ? pricing.recommended_positioning
+    : null;
+
+  if (!priced.length && !recommendation) return null;
+
   return (
     <section className="report-section" aria-label="Pricing">
       <h2><DollarSign size={16} /> Pricing Landscape</h2>
-      {pricing.competitors?.length > 0 && (
+      {priced.length > 0 && (
         <div className="pricing-grid">
-          {pricing.competitors.map((p: any, i: number) => (
+          {priced.map((p: any, i: number) => (
             <div key={p.name || i} className="pricing-card">
               <h3>{p.name}</h3>
-              {p.tiers?.map((t: any, j: number) => (
+              {p.tiers.map((t: any, j: number) => (
                 <div key={j} className="pricing-tier">
                   <span className="tier-name">{t.name}</span>
                   <span className="tier-price">{t.price === 0 ? "Free" : `$${t.price}/mo`}</span>
@@ -98,10 +178,46 @@ export function PricingSection({ pricing }: { pricing: any }) {
           ))}
         </div>
       )}
-      {pricing.recommended_positioning && (
-        <div className="pricing-recommendation"><strong>Recommendation:</strong> {pricing.recommended_positioning}</div>
+      {recommendation && (
+        <div className="pricing-recommendation"><strong>Recommendation:</strong> {recommendation}</div>
       )}
     </section>
+  );
+}
+
+function MarketSizeCard({ marketSize }: { marketSize: any }) {
+  const rows = (["tam", "sam", "som"] as const)
+    .map((key) => ({
+      label: key.toUpperCase(),
+      value: marketSize[key] as string,
+      source: marketSize[`${key}_source`] as string | undefined,
+    }))
+    .filter((row) => row.value);
+
+  return (
+    <div className="market-size-card">
+      <h3>Market Size</h3>
+      {rows.length > 0 ? (
+        rows.map((row) => (
+          <div key={row.label} className="market-row">
+            <span className="market-label">{row.label}</span>
+            <span className="market-value">
+              {row.value}
+              {isUsableSourceUrl(row.source) ? (
+                <ExternalHref href={row.source} className="market-source">
+                  source
+                </ExternalHref>
+              ) : null}
+            </span>
+          </div>
+        ))
+      ) : (
+        <p className="market-unsourced">
+          No sourced market sizing found for this idea. Treat any TAM you have in
+          mind as unverified.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -109,14 +225,7 @@ export function FundingSection({ funding }: { funding: any }) {
   return (
     <section className="report-section" aria-label="Market Data">
       <h2><TrendingUp size={16} /> Market & Funding</h2>
-      {funding.market_size && (
-        <div className="market-size-card">
-          <h3>Market Size</h3>
-          {funding.market_size.tam && <div className="market-row"><span className="market-label">TAM</span><span className="market-value">{funding.market_size.tam}</span></div>}
-          {funding.market_size.sam && <div className="market-row"><span className="market-label">SAM</span><span className="market-value">{funding.market_size.sam}</span></div>}
-          {funding.market_size.som && <div className="market-row"><span className="market-label">SOM</span><span className="market-value">{funding.market_size.som}</span></div>}
-        </div>
-      )}
+      {funding.market_size && <MarketSizeCard marketSize={funding.market_size} />}
       {funding.funding_landscape?.notable_rounds?.length > 0 && (
         <div className="funding-rounds">
           <h3>Notable Funding Rounds</h3>
@@ -142,7 +251,13 @@ export function FundingSection({ funding }: { funding: any }) {
   );
 }
 
-export function GapsSection({ gaps }: { gaps: any }) {
+export function GapsSection({
+  gaps,
+  contested = false,
+}: {
+  gaps: any;
+  contested?: boolean;
+}) {
   return (
     <section className="report-section" aria-label="Market Gaps">
       <h2><Target size={16} /> Market Gaps</h2>
@@ -167,7 +282,11 @@ export function GapsSection({ gaps }: { gaps: any }) {
           {gaps.gaps.map((g: any, i: number) => (
             <div key={i} className="gap-item">
               <p>{g.gap}</p>
-              <span className={`opp-size ${g.opportunity_size?.toLowerCase()}`}>{g.opportunity_size} opportunity</span>
+              <span
+                className={`opp-size ${contested ? "contested" : g.opportunity_size?.toLowerCase()}`}
+              >
+                {opportunityLabel(g.opportunity_size, contested)}
+              </span>
             </div>
           ))}
         </div>
@@ -230,11 +349,19 @@ export function DistributionSection({ distribution }: { distribution: any }) {
   );
 }
 
-export function PositioningSection({ positioning }: { positioning: Positioning }) {
+export function PositioningSection({
+  positioning,
+  contested = false,
+}: {
+  positioning: Positioning;
+  contested?: boolean;
+}) {
+  const note = pitchSectionNote(contested);
   return (
     <section className="report-section" aria-label="Positioning">
-      <h2><Compass size={16} /> Positioning</h2>
-      <div className="positioning-card">
+      <h2><Compass size={16} /> {pitchSectionTitle(contested)}</h2>
+      {note ? <p className="section-caveat">{note}</p> : null}
+      <div className={`positioning-card${contested ? " is-contested" : ""}`}>
         <div className="positioning-row"><strong>One-liner:</strong> {positioning.one_liner}</div>
         <div className="positioning-row"><strong>Category:</strong> {positioning.category}</div>
         <div className="positioning-row"><strong>Target:</strong> {positioning.target_user}</div>
@@ -248,7 +375,7 @@ export function PositioningSection({ positioning }: { positioning: Positioning }
 
 export function LaunchSection({ launch }: { launch: LaunchStrategy }) {
   return (
-    <section className="report-section" aria-label="Launch Strategy">
+    <section className="report-section is-wide" aria-label="Launch Strategy">
       <h2><Rocket size={16} /> Launch Strategy</h2>
       <div className="launch-timeline">
         {([
@@ -277,20 +404,3 @@ export function LaunchSection({ launch }: { launch: LaunchStrategy }) {
   );
 }
 
-export function SourcesSection({ sources }: { sources: SourceLink[] }) {
-  if (!sources?.length) return null;
-  return (
-    <section className="report-section" aria-label="Live Sources">
-      <h2><Globe size={16} /> Live Sources ({sources.length})</h2>
-      <p className="sources-note">Every dossier claim traces back to pages found during this run. Check them yourself.</p>
-      <ul className="source-list">
-        {sources.map((s, i) => (
-          <li key={`${s.url}-${i}`} className="source-item">
-            <span className="source-section">{s.section}</span>
-            <ExternalHref href={s.url}>{s.title}</ExternalHref>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}

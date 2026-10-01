@@ -4,7 +4,14 @@ import { useState, useRef, useCallback } from "react";
 import { extractVerdict } from "@/lib/extractVerdict";
 import { prependHistory } from "@/lib/historyStorage";
 import type { AgentResult, SynthesisResult, HistoryEntry, IdeaInput } from "@/lib/types";
-import type { Competitor, Positioning, LaunchStrategy, SourceLink, ResearchResult } from "@/lib/research/types";
+import type {
+  Competitor,
+  Positioning,
+  LaunchStrategy,
+  SourceLink,
+  ResearchResult,
+  GitHubLandscape,
+} from "@/lib/research/types";
 import type { RunIntegrity } from "@/lib/runIntegrity";
 
 export type ResearchAgentStatus = {
@@ -35,6 +42,7 @@ export type BriefRun = {
   distribution: any;
   positioning: Positioning | null;
   launch: LaunchStrategy | null;
+  github: GitHubLandscape | null;
   sources: SourceLink[];
   processingTime: string | null;
   brief: NonNullable<ResearchResult["brief"]> | null;
@@ -60,6 +68,8 @@ export function useBriefRun(
   onHistory: (entry: HistoryEntry) => void,
   onRunStart?: (idea: IdeaInput) => void,
   onFailure?: () => void,
+  onOutOfCredits?: () => void,
+  onAuthRequired?: () => void,
 ): BriefRun {
   const [loading, setLoading] = useState(false);
   const [cancelled, setCancelled] = useState(false);
@@ -76,6 +86,7 @@ export function useBriefRun(
   const [distribution, setDistribution] = useState<any>(null);
   const [positioning, setPositioning] = useState<Positioning | null>(null);
   const [launch, setLaunch] = useState<LaunchStrategy | null>(null);
+  const [github, setGithub] = useState<GitHubLandscape | null>(null);
   const [sources, setSources] = useState<SourceLink[]>([]);
   const [processingTime, setProcessingTime] = useState<string | null>(null);
   const [brief, setBrief] = useState<NonNullable<ResearchResult["brief"]> | null>(
@@ -87,6 +98,10 @@ export function useBriefRun(
   const runIdRef = useRef(0);
   const onFailureRef = useRef(onFailure);
   onFailureRef.current = onFailure;
+  const onOutOfCreditsRef = useRef(onOutOfCredits);
+  onOutOfCreditsRef.current = onOutOfCredits;
+  const onAuthRequiredRef = useRef(onAuthRequired);
+  onAuthRequiredRef.current = onAuthRequired;
 
   const reset = useCallback(() => {
     setCompetitors([]);
@@ -96,6 +111,7 @@ export function useBriefRun(
     setDistribution(null);
     setPositioning(null);
     setLaunch(null);
+    setGithub(null);
     setSources([]);
     setProcessingTime(null);
     setBrief(null);
@@ -149,11 +165,15 @@ export function useBriefRun(
       setPositioning(data.data);
     } else if (data.type === "launch" && data.data) {
       setLaunch(data.data);
+    } else if (data.type === "github" && data.data) {
+      setGithub(data.data);
     } else if (data.type === "integrity") {
       setIntegrity({
         type: "integrity",
         fallback: Boolean(data.fallback),
         sources: Number(data.sources) || 0,
+        fetched: Number(data.fetched) || 0,
+        discarded: Number(data.discarded) || 0,
         agentFailures: Number(data.agentFailures) || 0,
       });
     }
@@ -190,16 +210,33 @@ export function useBriefRun(
     let localAgents: Record<string, AgentResult> = {};
     let localSynth: SynthesisResult | null = null;
 
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `run-${Date.now()}-${runId}`;
+
     try {
       const res = await fetch("/api/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        credentials: "same-origin",
         body: JSON.stringify(idea),
         signal: controller.signal,
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          onAuthRequiredRef.current?.();
+          throw new Error(err.error || "Sign in to run a briefing.");
+        }
+        if (res.status === 402) {
+          onOutOfCreditsRef.current?.();
+          throw new Error(err.error || "No briefings left.");
+        }
         throw new Error(err.error || `Request failed (${res.status})`);
       }
 
@@ -240,6 +277,20 @@ export function useBriefRun(
       if (localSynth) {
         saveToHistory(idea, Object.values(localAgents), localSynth);
       } else {
+        try {
+          await fetch("/api/account/refund-briefing", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              idempotencyKey,
+              reason: "incomplete_report",
+            }),
+          });
+        } catch {
+          // Server may have already refunded on stream error.
+        }
+        setError("Report did not complete. Your credit was restored if it was charged.");
         onFailureRef.current?.();
       }
     } catch (err: any) {
@@ -274,6 +325,7 @@ export function useBriefRun(
     distribution,
     positioning,
     launch,
+    github,
     sources,
     processingTime,
     brief,

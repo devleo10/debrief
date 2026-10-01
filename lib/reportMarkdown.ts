@@ -52,6 +52,19 @@ export function buildReportMarkdown(input: ReportInput): string {
   }
 
   const research = input.research;
+  if (research?.github?.repos?.length) {
+    const gh = research.github;
+    const repoLines = gh.repos
+      .map(
+        (r) =>
+          `- [${r.full_name}](${r.url}) — ${r.stars}★ / ${r.forks} forks (${r.relevance}): ${r.overlap}`,
+      )
+      .join("\n");
+    parts.push(
+      `## GitHub landscape (${gh.signal})\n\n${gh.summary}\n\n${repoLines}`,
+    );
+  }
+
   if (research?.sources?.length) {
     const lines = research.sources
       .map((s) => `- [${s.title}](${s.url}) _(${s.section})_`)

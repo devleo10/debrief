@@ -57,6 +57,19 @@ describe("integritySummary", () => {
         sources: 1,
         agentFailures: 0,
       }),
-    ).toMatch(/1 live source/);
+    ).toMatch(/1 cited source/);
+  });
+
+  it("separates cited from fetched and reports what was thrown away", () => {
+    const summary = integritySummary({
+      type: "integrity",
+      fallback: false,
+      sources: 12,
+      fetched: 70,
+      discarded: 14,
+      agentFailures: 0,
+    });
+    expect(summary).toContain("12 cited sources of 70 fetched");
+    expect(summary).toContain("14 dropped as off-topic");
   });
 });

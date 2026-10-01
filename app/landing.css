@@ -1,8 +1,19 @@
 .landing {
   min-height: 100vh;
+  /* The top haze has to stay translucent: the ruled pattern sits underneath it
+     and an opaque first layer hides it entirely. */
   background:
-    linear-gradient(180deg, rgba(24, 30, 34, 0.76), rgba(10, 10, 13, 0.35) 34%, rgba(10, 10, 13, 1) 72%),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 112px),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-3) 76%, transparent),
+      color-mix(in srgb, var(--canvas) 35%, transparent) 34%,
+      var(--canvas) 72%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--wash-1) 50%, transparent) 0 1px,
+      transparent 1px 112px
+    ),
     var(--canvas);
 }
 
@@ -17,8 +28,8 @@
   margin: 0 auto;
   padding: 16px 24px;
   backdrop-filter: blur(18px);
-  background: rgba(8, 9, 11, 0.72);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--wash-1);
 }
 
 .landing-wordmark {
@@ -68,7 +79,7 @@
 
 .landing-nav-links .landing-nav-cta {
   padding: 8px 13px;
-  border: 1px solid rgba(255, 94, 73, 0.5);
+  border: 1px solid var(--accent-dim);
   border-radius: var(--radius-sm);
   color: var(--accent);
   background: var(--accent-dim);
@@ -93,7 +104,7 @@
   left: -8%;
   width: 420px;
   height: 420px;
-  background: radial-gradient(circle, rgba(255, 94, 73, 0.14), transparent 68%);
+  background: radial-gradient(circle, var(--accent-dim), transparent 68%);
   pointer-events: none;
   filter: blur(8px);
 }
@@ -221,7 +232,7 @@
 
 .landing-primary {
   padding: 0 18px;
-  color: #0a0a0d;
+  color: var(--on-accent);
   background: var(--accent);
   border: 1px solid var(--accent);
   position: relative;
@@ -236,7 +247,7 @@
   left: -80%;
   width: 50%;
   height: 100%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  background: linear-gradient(100deg, transparent, var(--line-3), transparent);
   transform: skewX(-20deg);
   transition: left 0.55s ease;
   pointer-events: none;
@@ -247,7 +258,7 @@
 }
 
 .landing-primary:hover {
-  box-shadow: 0 8px 28px rgba(255, 94, 73, 0.35);
+  box-shadow: 0 8px 28px var(--accent-dim);
 }
 
 .landing-primary svg {
@@ -262,13 +273,13 @@
   padding: 0 14px;
   color: var(--text-1);
   border: 1px solid var(--line-2);
-  background: rgba(16, 16, 20, 0.72);
+  background: var(--surface-1);
   transition: transform 0.2s, border-color 0.2s, background 0.2s;
 }
 
 .landing-secondary:hover {
   border-color: var(--text-3);
-  background: rgba(21, 25, 32, 0.9);
+  background: var(--surface-1);
 }
 
 .landing-primary:hover,
@@ -287,7 +298,7 @@
   padding: 7px 9px;
   border: 1px solid var(--line-1);
   border-radius: var(--radius-sm);
-  background: rgba(16, 16, 20, 0.64);
+  background: var(--surface-1);
   color: var(--text-2);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -308,9 +319,9 @@
 .landing-stats div {
   min-width: 108px;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--wash-2);
   border-radius: var(--radius-sm);
-  background: rgba(16, 18, 22, 0.72);
+  background: var(--surface-1);
 }
 
 .landing-stats strong {
@@ -350,8 +361,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+    linear-gradient(var(--wash-1) 1px, transparent 1px),
+    linear-gradient(90deg, var(--wash-1) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
   z-index: 0;
@@ -364,13 +375,13 @@
   --cc: var(--accent);
   position: relative;
   overflow: hidden;
-  background: rgba(13, 14, 18, 0.8);
+  background: var(--surface-1);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--wash-1);
   padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--wash-2);
   transition:
     border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
@@ -398,7 +409,7 @@
   border-color: color-mix(in srgb, var(--cc) 45%, transparent);
   box-shadow:
     0 0 26px color-mix(in srgb, var(--cc) 16%, transparent),
-    0 12px 32px rgba(0, 0, 0, 0.5);
+    0 12px 32px var(--wash-2);
   transform: translateY(-2px);
 }
 
@@ -406,7 +417,7 @@
   border-color: color-mix(in srgb, var(--cc) 40%, transparent);
   box-shadow:
     0 0 22px color-mix(in srgb, var(--cc) 14%, transparent),
-    0 8px 24px rgba(0, 0, 0, 0.4);
+    0 8px 24px var(--wash-2);
 }
 
 .aorb-panel:hover::before {
@@ -458,7 +469,7 @@
 .compare-box {
   border: 1px solid var(--line-1);
   border-radius: var(--radius-sm);
-  background: rgba(16, 16, 20, 0.72);
+  background: var(--surface-1);
 }
 
 .band-item {
@@ -470,7 +481,7 @@
 }
 
 .band-item:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--wash-3);
   transform: translateY(-2px);
 }
 
@@ -575,8 +586,8 @@
 }
 
 .workflow-card:hover {
-  border-color: rgba(255, 94, 73, 0.35);
-  background: rgba(21, 25, 32, 0.92);
+  border-color: var(--accent-dim);
+  background: var(--surface-1);
   transform: translateY(-2px);
 }
 
@@ -640,12 +651,12 @@
 }
 
 .compare-box.strong:hover {
-  border-color: rgba(255, 94, 73, 0.62);
+  border-color: var(--accent-dim);
 }
 
 .compare-box.strong {
-  border-color: rgba(255, 94, 73, 0.42);
-  background: linear-gradient(180deg, var(--accent-dim), rgba(16, 16, 20, 0.8));
+  border-color: var(--accent-dim);
+  background: linear-gradient(180deg, var(--accent-dim), var(--surface-1));
 }
 
 .compare-box.strong span {

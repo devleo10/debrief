@@ -12,6 +12,7 @@ import {
   Megaphone,
   Compass,
   Rocket,
+  Code2,
   Mic,
   Square,
   ArrowRight,
@@ -39,39 +40,24 @@ import type {
   HistoryEntry,
   IdeaInput,
 } from "@/lib/types";
-import AgentCard from "@/components/AgentCard";
-import VerdictBanner from "@/components/VerdictBanner";
 import HistoryPanel from "@/components/HistoryPanel";
 import { ReportErrorBoundary } from "@/components/ReportErrorBoundary";
 import LegalFooter from "@/components/LegalFooter";
 import AccountMenu from "@/components/AccountMenu";
-import { useAuth, writePendingIdea } from "@/lib/auth/AuthProvider";
+import { useAuth, writePendingIdea, clearPendingIdea } from "@/lib/auth/AuthProvider";
+import {
+  refundAnonCredit,
+  spendAnonCredit,
+  STARTING_CREDITS,
+} from "@/lib/auth/store";
 import { fillFormFromQuick } from "@/lib/ideaDraft";
 import {
-  integritySummary,
-  isDegradedRun,
-} from "@/lib/runIntegrity";
-import {
   parseReadout,
+  previewLine,
   readoutSection,
-  splitCriteria,
 } from "@/lib/parseReadout";
-import Prose from "@/components/Prose";
 import { useBriefRun, type ResearchAgentStatus } from "./useBriefRun";
-import {
-  CompetitorsSection,
-  PricingSection,
-  FundingSection,
-  GapsSection,
-  DistributionSection,
-  PositioningSection,
-  LaunchSection,
-  SourcesSection,
-  BriefFrameSection,
-} from "./ReportSections";
-const Scorecard = dynamic(() => import("@/components/Scorecard"), {
-  ssr: false,
-});
+const Report = dynamic(() => import("./report/Report"), { ssr: false });
 import "../globals.css";
 import "./brief.css";
 
@@ -85,6 +71,7 @@ const RESEARCH_AGENTS: Record<
   { label: string; icon: React.ReactNode }
 > = {
   competitors: { label: "Competitors", icon: <Search size={14} /> },
+  github: { label: "GitHub", icon: <Code2 size={14} /> },
   pricing: { label: "Pricing", icon: <DollarSign size={14} /> },
   funding: { label: "Market Data", icon: <BarChart3 size={14} /> },
   gaps: { label: "Pain Points", icon: <Target size={14} /> },
@@ -269,6 +256,7 @@ const FULL_EXAMPLES: IdeaInput[] = [
 
 const DOSSIER_PITCHES = [
   "Scanning competitors...",
+  "Searching GitHub for similar repos...",
   "Pulling pricing data...",
   "Mapping the funding landscape...",
   "Finding market gaps...",
@@ -340,16 +328,27 @@ export default function Page() {
 
 function BriefPage() {
   const searchParams = useSearchParams();
-  const { user, openAuth, spend, refund } = useAuth();
+  const { user, ready, openAuth, spend, refund, usingSupabase, refreshProfile } = useAuth();
   const spentRef = useRef(false);
+  const spentAnonRef = useRef(false);
+  const autostartRef = useRef(false);
   const refundRef = useRef(refund);
   refundRef.current = refund;
 
   const giveBackCredit = useCallback(() => {
+    if (usingSupabase) {
+      void refreshProfile();
+      return;
+    }
+    if (spentAnonRef.current) {
+      spentAnonRef.current = false;
+      refundAnonCredit();
+      return;
+    }
     if (!spentRef.current) return;
     spentRef.current = false;
     refundRef.current();
-  }, []);
+  }, [usingSupabase, refreshProfile]);
 
   // Input state
   const [phase, setPhase] = useState<Phase>("form");
@@ -384,7 +383,6 @@ function BriefPage() {
   // Loading state
   const [pitchIndex, setPitchIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [dossierExpanded, setDossierExpanded] = useState(false);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
@@ -397,6 +395,13 @@ function BriefPage() {
       setLastIdea(idea);
     }, []),
     giveBackCredit,
+    useCallback(() => {
+      setOutOfCredits(true);
+      void refreshProfile();
+    }, [refreshProfile]),
+    useCallback(() => {
+      openAuth();
+    }, [openAuth]),
   );
   const {
     loading,
@@ -412,6 +417,7 @@ function BriefPage() {
     distribution,
     positioning,
     launch,
+    github,
     sources,
     processingTime,
     brief,
@@ -427,13 +433,19 @@ function BriefPage() {
   } = run_;
 
   // UI state
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (loading && usingSupabase) {
+      void refreshProfile();
+    }
+  }, [loading, usingSupabase, refreshProfile]);
+
+  useEffect(() => {
     if (!loading && synthesis && !error) {
       spentRef.current = false;
+      spentAnonRef.current = false;
     }
   }, [loading, synthesis, error]);
 
@@ -467,7 +479,7 @@ function BriefPage() {
     return () => clearInterval(id);
   }, [loading]);
 
-  const hasResults = competitors.length > 0 || !!synthesis;
+  const hasResults = competitors.length > 0 || !!github?.repos?.length || !!synthesis;
   const filledContext = OPTIONAL_KEYS.filter((k) => form[k].trim()).length;
   const dossierTotal = Object.keys(RESEARCH_AGENTS).length;
   const roomTotal = agentOrder.length;
@@ -483,7 +495,7 @@ function BriefPage() {
   );
   const workingLabel = !dossierComplete
     ? activeScan
-      ? `${RESEARCH_AGENTS[activeScan.agent]?.label ?? activeScan.agent} · ${activeScan.status}`
+      ? `${RESEARCH_AGENTS[activeScan.agent]?.label ?? activeScan.agent}, ${activeScan.status}`
       : researchDone === 0
         ? "Opening the live market scan"
         : `${researchDone}/${dossierTotal} scans complete`
@@ -499,10 +511,6 @@ function BriefPage() {
     setPitchIndex(0);
   }, [dossierComplete]);
 
-  useEffect(() => {
-    if (sources.length > 0) setDossierExpanded(true);
-  }, [sources.length]);
-
   // Escape cancels a running briefing
   useEffect(() => {
     if (!loading) return;
@@ -513,36 +521,57 @@ function BriefPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [loading, handleCancel]);
 
-  const beginRun = (idea: IdeaInput) => {
+  const beginRun = useCallback((idea: IdeaInput) => {
     if (!user) {
-      writePendingIdea(idea.description);
-      openAuth();
-      return;
-    }
-    if (user.credits < 1) {
+      if (usingSupabase) {
+        writePendingIdea(idea.description);
+        openAuth();
+        return;
+      }
+      try {
+        spendAnonCredit();
+        spentAnonRef.current = true;
+      } catch {
+        writePendingIdea(idea.description);
+        openAuth();
+        return;
+      }
+    } else if (user.credits < 1) {
       setOutOfCredits(true);
       return;
-    }
-    try {
-      spend();
-      spentRef.current = true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not start.";
-      if (/no briefings left/i.test(message)) {
-        setOutOfCredits(true);
-      } else {
-        setError(message);
+    } else if (!usingSupabase) {
+      try {
+        spend();
+        spentRef.current = true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not start.";
+        if (/no briefings left/i.test(message)) {
+          setOutOfCredits(true);
+        } else {
+          setError(message);
+        }
+        return;
       }
-      return;
     }
-    voice.stop();
+    voiceRaw.stop();
     setOutOfCredits(false);
     setError(null);
     setCancelled(false);
     setPhase("results");
     window.scrollTo({ top: 0, behavior: "auto" });
     void runUnified(idea);
-  };
+    if (usingSupabase) {
+      clearPendingIdea();
+    }
+  }, [user, usingSupabase, openAuth, spend, runUnified, voiceRaw]);
+
+  useEffect(() => {
+    if (!ready || autostartRef.current) return;
+    const ideaParam = searchParams.get("idea")?.trim();
+    if (searchParams.get("autostart") !== "1" || !ideaParam) return;
+    autostartRef.current = true;
+    beginRun(ideaFromQuick(ideaParam));
+  }, [ready, searchParams, beginRun]);
 
   const handleQuickSubmit = () => {
     if (!quickInput.trim()) return;
@@ -645,6 +674,12 @@ function BriefPage() {
       section.label !== "NEXT MOVE" &&
       section.label !== "KILL CRITERIA",
   );
+  // The one reason for the verdict, promoted out of the agent list.
+  const fatalFlaw =
+    readoutSection(readoutSections, "KILL SHOT REVIEW") ||
+    (agentResults.devil
+      ? previewLine(stripStructuredBlocks(agentResults.devil.output), 320)
+      : "");
 
   const handleCopy = () => {
     navigator.clipboard.writeText(
@@ -664,7 +699,9 @@ function BriefPage() {
     agents: Object.values(agentResults),
     synthesis,
     research:
-      sources.length > 0 ? ({ sources } as unknown as ResearchResult) : null,
+      sources.length > 0 || github
+        ? ({ sources, github } as unknown as ResearchResult)
+        : null,
   };
   const handleCopyReport = () => {
     navigator.clipboard.writeText(buildReportMarkdown(reportInput));
@@ -1213,250 +1250,47 @@ function BriefPage() {
 
           {!loading && hasResults && (
             <ReportErrorBoundary>
-              <div className="briefing-console report-console">
-                <div className="report-banner">
-                  <div className="report-banner-copy">
-                    <span className="console-status done">Briefing complete</span>
-                    <strong>{displayTitle}</strong>
-                    {processingTime ? <em>{processingTime}</em> : <em>Ready</em>}
-                  </div>
-                  {synthesis && (
-                    <div className="report-actions">
-                      <button
-                        type="button"
-                        className="nav-btn"
-                        onClick={handleRerunWithChanges}
-                      >
-                        Edit & rerun
-                      </button>
-                      <button
-                        type="button"
-                        className="nav-btn"
-                        onClick={handleCopyReport}
-                      >
-                        {copiedReport ? "Copied" : "Copy"}
-                      </button>
-                      <button
-                        type="button"
-                        className="nav-btn"
-                        onClick={handleDownloadReport}
-                      >
-                        Download
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="console-body">
-                  <div className="research-report">
-                    {/* Header */}
-                    <div className="report-header compact">
-                      <div className="report-kicker">Final output</div>
-                      {positioning?.one_liner && (
-                        <p className="one-liner">{positioning.one_liner}</p>
-                      )}
-                      {!positioning?.one_liner && ideaExcerpt ? (
-                        <p className="idea-excerpt">
-                          {ideaExcerpt.length > 180
-                            ? `${ideaExcerpt.slice(0, 180).replace(/\s+\S*$/, "")}…`
-                            : ideaExcerpt}
-                        </p>
-                      ) : null}
-                    </div>
-
-                    {/* Verdict */}
-                    {synthesis && (
-                      <div className="verdict-enter">
-                        <VerdictBanner
-                          verdict={verdict}
-                          overall={synthesis.scores.overall}
-                          onCopy={handleCopy}
-                          copied={copied}
-                        />
-                        {integrity ? (
-                          <div
-                            className={`integrity-strip ${isDegradedRun(integrity) ? "is-degraded" : ""}`}
-                          >
-                            <span className="integrity-label">
-                              {isDegradedRun(integrity)
-                                ? "Thin evidence"
-                                : "Run integrity"}
-                            </span>
-                            <span>{integritySummary(integrity)}</span>
-                          </div>
-                        ) : null}
-                        <Scorecard scores={synthesis.scores} />
-                        <p className="calibration-note">
-                          Calibration is harsh by design: 7+ is rare, most
-                          ideas land 3-6. A low score with specific reasons is
-                          the tool working, not failing.
-                        </p>
-                        {nextMove ? (
-                          <div className="pivot-box">
-                            <div className="pivot-label">Next move</div>
-                            <Prose className="pivot-text" text={nextMove} />
-                          </div>
-                        ) : null}
-                        {killCriteria ? (
-                          <div className="criteria-box">
-                            <div className="pivot-label">Kill criteria</div>
-                            <ul className="criteria-list">
-                              {splitCriteria(killCriteria).map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        <section
-                          className="report-section verdict-section"
-                          aria-label="Why"
-                        >
-                          <h2>Why</h2>
-                          {whySections.length > 0 ? (
-                            <div className="readout-grid">
-                              {whySections.map((section) => (
-                                <article
-                                  key={section.label}
-                                  className={`readout-card ${section.label === "KILL SHOT REVIEW" ? "danger" : ""}`}
-                                >
-                                  <div className="readout-label">
-                                    {section.label}
-                                  </div>
-                                  <Prose text={section.body} />
-                                </article>
-                              ))}
-                            </div>
-                          ) : (
-                            <Prose
-                              className="synthesis-content"
-                              text={synthesisText}
-                            />
-                          )}
-                        </section>
-                      </div>
-                    )}
-
-                    {/* Summary strip */}
-                    {positioning && (
-                      <div className="summary-strip">
-                        <div className="summary-item">
-                          <span className="summary-label">Category</span>
-                          <span className="summary-value">
-                            {positioning.category}
-                          </span>
-                        </div>
-                        <div className="summary-item">
-                          <span className="summary-label">Target</span>
-                          <span className="summary-value">
-                            {positioning.target_user}
-                          </span>
-                        </div>
-                        <div className="summary-item">
-                          <span className="summary-label">Edge</span>
-                          <span className="summary-value">
-                            {positioning.competitive_advantage}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* === ACT 1: THE DOSSIER === */}
-                    {(brief ||
-                      competitors.length > 0 ||
-                      pricing ||
-                      funding ||
-                      gaps ||
-                      distribution ||
-                      positioning ||
-                      launch) && (
-                      <div className="report-act">
-                        <button
-                          type="button"
-                          className="report-act-toggle"
-                          onClick={() => setDossierExpanded((v) => !v)}
-                          aria-expanded={dossierExpanded}
-                        >
-                          <span className="report-act-label">
-                            Act 1 · The dossier
-                          </span>
-                          <span className="report-act-hint">
-                            {dossierExpanded
-                              ? "Collapse"
-                              : [competitors.length && `${competitors.length} competitors`, sources.length && `${sources.length} sources`]
-                                  .filter(Boolean)
-                                  .join(" · ") || "Expand"}
-                          </span>
-                        </button>
-                        {dossierExpanded && (
-                          <div className="report-act-body">
-                            {brief && <BriefFrameSection brief={brief} />}
-                            {competitors.length > 0 && (
-                              <CompetitorsSection competitors={competitors} />
-                            )}
-
-                            {pricing && <PricingSection pricing={pricing} />}
-
-                            {funding && <FundingSection funding={funding} />}
-
-                            {gaps && <GapsSection gaps={gaps} />}
-
-                            {distribution && (
-                              <DistributionSection
-                                distribution={distribution}
-                              />
-                            )}
-
-                            {positioning && (
-                              <PositioningSection positioning={positioning} />
-                            )}
-
-                            {launch && <LaunchSection launch={launch} />}
-
-                            <SourcesSection sources={sources} />
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* === ACT 2: THE ROOM === */}
-
-                    <section className="agents-section report-act-room">
-                      <div className="report-act-label static">
-                        Act 2 · The room
-                      </div>
-                      <p className="report-act-desc">
-                        Seven experts stress-tested your idea against the
-                        dossier.
-                      </p>
-                      {agentOrder.map((name) => (
-                        <AgentCard
-                          key={name}
-                          name={name}
-                          result={agentResults[name]}
-                          loading={loading && !agentResults[name]}
-                          collapsed={
-                            collapsed[name] ?? !agentMetaMap[name]?.isDevil
-                          }
-                          onToggle={() =>
-                            setCollapsed((prev) => ({
-                              ...prev,
-                              [name]: !(
-                                prev[name] ?? !agentMetaMap[name]?.isDevil
-                              ),
-                            }))
-                          }
-                        />
-                      ))}
-                    </section>
-
-                    {/* Footer */}
-                    <div className="report-footer">
-                      <button className="start-over-btn" onClick={handleNew}>
-                        Run another briefing
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <Report
+                displayTitle={displayTitle}
+                processingTime={processingTime || ""}
+                oneLiner={positioning?.one_liner || ""}
+                ideaExcerpt={ideaExcerpt}
+                verdict={verdict}
+                scores={synthesis?.scores ?? null}
+                synthesisText={synthesisText}
+                whySections={whySections}
+                fatalFlaw={fatalFlaw}
+                nextMove={nextMove}
+                killCriteria={killCriteria}
+                integrity={integrity}
+                evidence={{
+                  brief: brief || null,
+                  competitors,
+                  github: github || null,
+                  pricing,
+                  funding,
+                  gaps,
+                  distribution,
+                  positioning,
+                  launch,
+                }}
+                sources={sources}
+                discardedSources={integrity?.discarded ?? 0}
+                agentOrder={agentOrder}
+                agentResults={agentResults}
+                loading={loading}
+                hasSynthesis={Boolean(synthesis)}
+                signedIn={Boolean(user)}
+                startingCredits={STARTING_CREDITS}
+                copiedVerdict={copied}
+                copiedReport={copiedReport}
+                onCopyVerdict={handleCopy}
+                onCopyReport={handleCopyReport}
+                onDownloadReport={handleDownloadReport}
+                onRerun={handleRerunWithChanges}
+                onNew={handleNew}
+                onAuth={openAuth}
+              />
             </ReportErrorBoundary>
           )}
 

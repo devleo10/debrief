@@ -15,7 +15,7 @@ export default function AccountMenu() {
   return (
     <div className="account-menu">
       <span className="credit-pill">{user.credits} left</span>
-      <button type="button" className="nav-btn" onClick={signOut}>
+      <button type="button" className="nav-btn" onClick={() => void signOut()}>
         {user.email.split("@")[0]}
       </button>
     </div>

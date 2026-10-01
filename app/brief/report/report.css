@@ -1,0 +1,441 @@
+/* ============================================================
+   The case file.
+   A ruling at the top, then the record as rows that open on
+   demand. Rows are divided by rules rather than boxed as cards,
+   so the page reads as one document instead of a dashboard.
+   ============================================================ */
+
+.case-file {
+  width: 100%;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 6rem;
+}
+
+/* The results page was sized for the old console shell; the file sets its own
+   measure, so drop the outer frame rather than nest two sets of padding. */
+.results-page:has(.case-file) {
+  max-width: none;
+  padding: 0;
+}
+
+/* Align the nav to the file's measure so the page has one left edge. */
+.app:has(.case-file) .topnav {
+  max-width: 68rem;
+  padding-inline: 1.5rem;
+}
+
+/* ---------- head ---------- */
+
+.file-status {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ship);
+  letter-spacing: 0.01em;
+}
+
+.file-title {
+  margin-top: 0.375rem;
+  font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.125rem);
+  font-weight: 600;
+  letter-spacing: -0.021em;
+  line-height: 1.15;
+  max-width: 24ch;
+}
+
+.file-pitch {
+  margin-top: 0.75rem;
+  max-width: 62ch;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.file-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- the ruling ---------- */
+
+/* One loud moment: a stamped margin rule, the call set in the serif, and the
+   reason given equal weight so the page never states a verdict without one. */
+.ruling {
+  margin-top: 2.5rem;
+  padding: 1.75rem 0 1.75rem 1.75rem;
+  border-left: 4px solid var(--rule-ink, var(--text-1));
+  background: linear-gradient(
+    90deg,
+    var(--rule-wash, transparent),
+    transparent 52%
+  );
+}
+
+.ruling.tone-kill {
+  --rule-ink: var(--kill);
+  --rule-wash: var(--kill-dim);
+}
+
+.ruling.tone-pivot {
+  --rule-ink: var(--pivot);
+  --rule-wash: var(--pivot-dim);
+}
+
+.ruling.tone-ship {
+  --rule-ink: var(--ship);
+  --rule-wash: var(--ship-dim);
+}
+
+.ruling-call {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.ruling-word {
+  font-family: var(--font-ruling);
+  font-size: clamp(2.75rem, 1.9rem + 3.6vw, 4.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--rule-ink);
+}
+
+.ruling-score {
+  font-family: var(--font-ruling);
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+  line-height: 1;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ruling-score-of {
+  font-size: 0.6em;
+  color: var(--text-3);
+}
+
+.ruling-reason {
+  margin-top: 0.875rem;
+  max-width: 54ch;
+  font-size: 1.1875rem;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--text-1);
+  text-wrap: pretty;
+}
+
+/* Scores read as a measurement row, not five competing progress bars. */
+.ruling-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2rem;
+  margin-top: 1.5rem;
+  padding-top: 1.125rem;
+  border-top: 1px solid var(--line-1);
+}
+
+.ruling-dim {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.ruling-dim dt {
+  font-size: 0.8125rem;
+  color: var(--text-3);
+}
+
+.ruling-dim dd {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The weakest dimension is why the verdict landed where it did. */
+.ruling-dim.is-weakest dd {
+  color: var(--rule-ink);
+}
+
+.ruling-dim.is-weakest dt {
+  color: var(--text-2);
+}
+
+.ruling-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+/* ---------- buttons ---------- */
+
+.act {
+  padding: 0.5rem 0.9375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.act:hover {
+  color: var(--text-1);
+  border-color: var(--line-3);
+  background: var(--surface-3);
+}
+
+.act.is-primary {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.act.is-primary:hover {
+  color: var(--on-accent);
+  background: var(--text-1);
+  border-color: var(--text-1);
+}
+
+/* ---------- integrity + nudge ---------- */
+
+.file-integrity {
+  margin-top: 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-3);
+}
+
+.file-integrity.is-degraded {
+  color: var(--pivot);
+}
+
+.auth-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-lg);
+}
+
+.auth-nudge p {
+  max-width: 52ch;
+  font-size: 0.875rem;
+  color: var(--text-2);
+}
+
+/* ---------- the rows ---------- */
+
+.file-rows {
+  margin-top: 3rem;
+  border-top: 1px solid var(--line-2);
+}
+
+.file-row {
+  border-bottom: 1px solid var(--line-1);
+}
+
+.file-row-heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.file-row-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 1.0625rem 0.25rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: padding-left 0.14s ease;
+}
+
+.file-row-toggle:hover {
+  padding-left: 0.5rem;
+}
+
+/* The mark is the affordance: a closed row points in, an open row points down. */
+.file-row-mark {
+  position: relative;
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  align-self: center;
+  border-right: 1.5px solid var(--text-3);
+  border-bottom: 1.5px solid var(--text-3);
+  transform: rotate(-45deg);
+  transition: transform 0.18s ease, border-color 0.12s;
+}
+
+.file-row.is-open .file-row-mark {
+  transform: rotate(45deg);
+  border-color: var(--text-1);
+}
+
+.file-row-toggle:hover .file-row-mark {
+  border-color: var(--text-1);
+}
+
+.file-row-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.011em;
+  color: var(--text-1);
+}
+
+.file-row.is-open .file-row-title.tone-kill {
+  color: var(--kill);
+}
+
+.file-row.is-open .file-row-title.tone-pivot {
+  color: var(--pivot);
+}
+
+.file-row.is-open .file-row-title.tone-ship {
+  color: var(--ship);
+}
+
+/* What is on record, visible without opening the row. */
+.file-row-meta {
+  margin-left: auto;
+  padding-left: 1rem;
+  font-size: 0.8125rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-row-panel {
+  padding: 0.25rem 0 2.25rem;
+}
+
+.file-row-panel[hidden] {
+  display: none;
+}
+
+.file-row-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  animation: row-open 0.22s ease both;
+}
+
+@keyframes row-open {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+}
+
+/* Sections inside a row already sit under the row's own heading. */
+.file-row-inner .report-section {
+  margin-bottom: 0;
+}
+
+/* The old report set every small label in tracked-out caps, which flattened
+   real headings and decorative labels into the same texture. Inside the file,
+   labels are sentence case and earn their weight from size and color instead. */
+.case-file .report-kicker,
+.case-file .report-section h2,
+.case-file .readout-label,
+.case-file .pivot-label,
+.case-file .decision-label,
+.case-file .integrity-label,
+.case-file .act-phase-label,
+.case-file .source-section,
+.case-file .github-signal,
+.case-file .github-relevance,
+.case-file .github-tier,
+.case-file .opp-size,
+.case-file .positioning-row strong {
+  text-transform: none;
+  letter-spacing: -0.006em;
+  font-family: var(--font-sans);
+}
+
+.case-file .report-section h2 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-2);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.case-file .readout-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 0.375rem;
+}
+
+.case-file .source-section,
+.case-file .github-tier,
+.case-file .github-relevance {
+  font-size: 0.75rem;
+  color: var(--text-3);
+}
+
+.critiques {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.critiques > .agent-card.devil {
+  grid-column: 1 / -1;
+}
+
+.file-foot {
+  margin-top: 2.5rem;
+}
+
+/* ---------- narrow ---------- */
+
+@media (max-width: 40rem) {
+  .case-file {
+    padding: 2rem 1.125rem 4rem;
+  }
+
+  .ruling {
+    padding-left: 1.125rem;
+  }
+
+  .file-row-meta {
+    margin-left: 0;
+    padding-left: 0;
+    flex-basis: 100%;
+  }
+
+  .file-row-toggle {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-row-inner {
+    animation: none;
+  }
+
+  .file-row-mark,
+  .file-row-toggle {
+    transition: none;
+  }
+}

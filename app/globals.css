@@ -1,7 +1,8 @@
 /* ============================================================
-   Design tokens — Linear-style discipline:
-   near-black canvas, surface ladder + hairlines (no drop shadows),
-   one accent color used scarcely, semantic verdict colors.
+   Design tokens — near-black canvas, surface ladder + hairlines
+   (no drop shadows), one accent used scarcely, semantic verdict
+   colors. Every color in the app resolves through these, so the
+   whole palette can be swapped here.
    ============================================================ */
 :root {
   /* canvas + surface ladder */
@@ -9,6 +10,7 @@
   --surface-1: #101216;
   --surface-2: #151920;
   --surface-3: #1d232b;
+  --sunken: #050608;
 
   /* hairlines */
   --line-1: #222228;
@@ -21,11 +23,21 @@
   --text-3: #62626c;
   --text-4: var(--text-3);
 
+  /* neutral washes — raised film over the canvas */
+  --wash-1: rgba(255, 255, 255, 0.05);
+  --wash-2: rgba(255, 255, 255, 0.08);
+  --wash-3: rgba(255, 255, 255, 0.12);
+
   /* the single brand accent — CTAs, focus, active states only */
   --accent: #ff5e49;
   --accent-dim: rgba(255, 94, 73, 0.12);
+  /* warmer end of the accent, for gradients that need two stops */
+  --accent-lift: #ff8a6b;
   --info: #63b3ff;
   --info-dim: rgba(99, 179, 255, 0.11);
+
+  /* ink for text sitting on a saturated fill */
+  --on-accent: #0a0a0d;
 
   /* semantic verdict colors */
   --ship: #3fd68c;
@@ -75,7 +87,8 @@ h1, h2, h3, h4, h5, h6 {
 
 input, textarea, button, select { font-family: inherit; }
 
-::selection { background: var(--accent); color: #0a0a0d; }
+::selection { background: var(--accent); color: var(--on-accent); }
+
 
 ::placeholder { color: var(--text-3); }
 
@@ -106,9 +119,9 @@ input, textarea, button, select { font-family: inherit; }
 }
 
 @keyframes micPulse {
-  0% { box-shadow: 0 0 0 0 rgba(255, 94, 73, 0.35); }
-  70% { box-shadow: 0 0 0 7px rgba(255, 94, 73, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 94, 73, 0); }
+  0% { box-shadow: 0 0 0 0 var(--accent-dim); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 @keyframes eqBounce {
@@ -117,9 +130,9 @@ input, textarea, button, select { font-family: inherit; }
 }
 
 @keyframes livePulse {
-  0% { box-shadow: 0 0 0 0 rgba(63, 214, 140, 0.45); }
-  70% { box-shadow: 0 0 0 8px rgba(63, 214, 140, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(63, 214, 140, 0); }
+  0% { box-shadow: 0 0 0 0 var(--ship-dim); }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 @keyframes spin {
@@ -240,8 +253,8 @@ input, textarea, button, select { font-family: inherit; }
   max-width: none;
   margin: 0;
   padding: 14px clamp(20px, 4vw, 48px);
-  background: rgba(8, 9, 11, 0.82);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--wash-1);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
 }
@@ -290,24 +303,87 @@ input, textarea, button, select { font-family: inherit; }
   border-radius: 999px;
 }
 
-.composer {
+.composer-rim {
+  position: relative;
   width: 100%;
   max-width: 440px;
-  padding: 14px 14px 12px;
-  border: 1px solid var(--line-2);
-  border-radius: 16px;
-  background: rgba(16, 18, 22, 0.86);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  padding: 2px;
+  border-radius: 18px;
+  box-shadow: 0 18px 50px var(--wash-2);
+  transition: box-shadow 0.2s ease;
 }
 
-.composer:hover,
-.composer:focus-within {
-  border-color: rgba(255, 94, 73, 0.45);
+.composer-rim:hover,
+.composer-rim:focus-within {
   box-shadow:
-    0 18px 50px rgba(0, 0, 0, 0.28),
-    0 0 0 1px rgba(255, 94, 73, 0.18),
-    0 0 28px rgba(255, 94, 73, 0.12);
+    0 18px 50px var(--wash-2),
+    0 0 28px var(--accent-dim);
+}
+
+.composer-rim-fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.composer-rim-blob {
+  position: absolute;
+  width: 240%;
+  height: 240%;
+  left: -70%;
+  top: -70%;
+  transform-origin: center;
+}
+
+.composer-rim-blob-a {
+  background: conic-gradient(
+    from 40deg,
+    var(--accent),
+    var(--accent-lift),
+    color-mix(in srgb, var(--accent) 42%, var(--surface-3)),
+    var(--accent-lift),
+    var(--accent)
+  );
+  animation: composerRimSpin 16s linear infinite;
+}
+
+.composer-rim-blob-b {
+  background: conic-gradient(
+    from 200deg,
+    transparent 0deg,
+    var(--accent-lift) 90deg,
+    color-mix(in srgb, var(--accent) 28%, transparent) 170deg,
+    var(--accent) 260deg,
+    color-mix(in srgb, var(--accent-lift) 45%, transparent) 330deg,
+    transparent 360deg
+  );
+  filter: blur(10px);
+  animation: composerRimSpin 22s linear infinite reverse;
+}
+
+.composer-rim-noise {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.55;
+  mix-blend-mode: overlay;
+}
+
+@keyframes composerRimSpin {
+  to { transform: rotate(1turn); }
+}
+
+.composer {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: 14px 14px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface-1);
 }
 
 .composer-field-wrap {
@@ -321,11 +397,22 @@ input, textarea, button, select { font-family: inherit; }
   color: var(--text-3);
   font-size: 15px;
   line-height: 1.5;
-  opacity: 0;
-  transition: opacity 0.28s ease;
 }
 
-.composer-ghost.is-on { opacity: 1; }
+.composer-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 1.05em;
+  margin-left: 1px;
+  background: currentColor;
+  vertical-align: text-bottom;
+  animation: composerCaret 0.95s steps(1) infinite;
+}
+
+@keyframes composerCaret {
+  0%, 48% { opacity: 1; }
+  49%, 100% { opacity: 0; }
+}
 
 .composer-field {
   position: relative;
@@ -362,7 +449,7 @@ input, textarea, button, select { font-family: inherit; }
   border: 0;
   border-radius: 999px;
   background: var(--accent);
-  color: #0a0a0d;
+  color: var(--on-accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -373,7 +460,7 @@ input, textarea, button, select { font-family: inherit; }
 .composer-send:hover:not(:disabled) {
   transform: scale(1.08);
   filter: brightness(1.06);
-  box-shadow: 0 0 18px rgba(255, 94, 73, 0.45);
+  box-shadow: 0 0 18px var(--accent-dim);
 }
 
 .composer-send:disabled {
@@ -382,8 +469,10 @@ input, textarea, button, select { font-family: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer-ghost { opacity: 1; transition: none; }
+  .composer-caret { animation: none; opacity: 0; }
   .composer-send:hover:not(:disabled) { transform: none; }
+  .composer-rim-blob-a,
+  .composer-rim-blob-b { animation: none; }
 }
 
 .auth-scrim {
@@ -399,7 +488,7 @@ input, textarea, button, select { font-family: inherit; }
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(5, 6, 8, 0.72);
+  background: var(--surface-2);
   backdrop-filter: blur(10px);
 }
 
@@ -409,7 +498,7 @@ input, textarea, button, select { font-family: inherit; }
   padding: 28px 24px 22px;
   border: 1px solid var(--line-2);
   border-radius: 16px;
-  background: #101216;
+  background: var(--surface-1);
 }
 
 .auth-kicker {
@@ -457,7 +546,7 @@ input, textarea, button, select { font-family: inherit; }
   padding: 12px 14px;
   border: 1px solid var(--line-2);
   border-radius: 10px;
-  background: #0a0b0e;
+  background: var(--surface-3);
   color: var(--text-1);
   font: inherit;
 }
@@ -472,7 +561,7 @@ input, textarea, button, select { font-family: inherit; }
   border: 0;
   border-radius: 10px;
   background: var(--accent);
-  color: #0a0a0d;
+  color: var(--on-accent);
   font-weight: 700;
   cursor: pointer;
 }
