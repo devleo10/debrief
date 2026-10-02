@@ -307,25 +307,10 @@ export function useBriefRun(
       if (localSynth) {
         saveToHistory(idea, Object.values(localAgents), localSynth, localClashes);
       } else {
-        if (!llmConfig) {
-          try {
-            await fetch("/api/account/refund-briefing", {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                idempotencyKey,
-                reason: "incomplete_report",
-              }),
-            });
-          } catch {
-            // Server may have already refunded on stream error.
-          }
-        }
         const message = llmConfig
           ? streamError ||
             "Report did not complete. This run used your own API key, so no briefing credit was charged."
-          : "Report did not complete. Your credit was restored if it was charged.";
+          : "Report did not complete. The server restores the credit when a run fails before the report is delivered.";
         setError(message);
         toastError(message);
         onFailureRef.current?.();

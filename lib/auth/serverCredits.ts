@@ -3,7 +3,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { assertSupabaseServerReady } from "@/lib/supabase/config";
 
 export class CreditError extends Error {
-  code: "insufficient" | "missing_profile" | "rpc_failed" | "misconfigured";
+  code:
+    | "insufficient"
+    | "missing_profile"
+    | "rpc_failed"
+    | "misconfigured"
+    | "invalid_key"
+    | "key_refunded";
 
   constructor(code: CreditError["code"], message: string) {
     super(message);
@@ -22,6 +28,14 @@ export type SpendResult = {
   chargedThisRequest: boolean;
 };
 
+type RpcRow = { remaining: number | string | null; charged?: boolean; refunded?: boolean; revoked?: boolean };
+
+function firstRow(data: unknown): RpcRow | null {
+  if (Array.isArray(data)) return (data[0] as RpcRow) ?? null;
+  if (data && typeof data === "object") return data as RpcRow;
+  return null;
+}
+
 function normalizeIdempotencyKey(key: string | null | undefined): string | null {
   if (!key) return null;
   const trimmed = key.trim().slice(0, 128);
@@ -32,27 +46,6 @@ export function parseIdempotencyKey(
   key: string | null | undefined,
 ): string | null {
   return normalizeIdempotencyKey(key);
-}
-
-async function logCreditEvent(
-  userId: string,
-  eventType: "spend" | "refund" | "refund_failed",
-  delta: number,
-  idempotencyKey: string | null,
-  note?: string,
-) {
-  const admin = createAdminClient();
-  const { error } = await admin.from("credit_events").insert({
-    user_id: userId,
-    event_type: eventType,
-    delta,
-    idempotency_key: idempotencyKey,
-    note: note ?? null,
-  });
-
-  if (error && !error.message.includes("duplicate key")) {
-    console.error("[credits] audit log failed:", error.message);
-  }
 }
 
 export async function ensureProfileForUser(
@@ -89,36 +82,11 @@ export async function ensureProfileForUser(
   return { email: data.email, credits: data.credits };
 }
 
-async function hasSpendEvent(
-  userId: string,
-  idempotencyKey: string,
-): Promise<boolean> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("credit_events")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("event_type", "spend")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  return Boolean(data);
-}
-
-async function hasRefundEvent(
-  userId: string,
-  idempotencyKey: string,
-): Promise<boolean> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("credit_events")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("event_type", "refund")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  return Boolean(data);
-}
-
+/**
+ * Charge one briefing. The database inserts the spend event and decrements the
+ * balance in one transaction, so concurrent retries with the same key are safe.
+ * Reusing a key that was refunded is rejected instead of granting a free run.
+ */
 export async function spendCreditForUser(
   userId: string,
   email: string,
@@ -129,31 +97,47 @@ export async function spendCreditForUser(
   await ensureProfileForUser(userId, email);
 
   const idempotencyKey = normalizeIdempotencyKey(idempotencyKeyRaw);
-  const admin = createAdminClient();
-
-  if (idempotencyKey && (await hasSpendEvent(userId, idempotencyKey))) {
-    const profile = await ensureProfileForUser(userId, email);
-    return { remaining: profile.credits, chargedThisRequest: false };
+  if (!idempotencyKey) {
+    throw new CreditError("invalid_key", "Missing or invalid Idempotency-Key.");
   }
 
+  const admin = createAdminClient();
   const { data, error } = await admin.rpc("spend_credit", {
     p_user_id: userId,
-    cost,
+    p_cost: cost,
+    p_idempotency_key: idempotencyKey,
   });
 
   if (error) {
-    if (error.message.includes("insufficient_credits")) {
+    const message = error.message || "";
+    if (message.includes("insufficient_credits")) {
       throw new CreditError("insufficient", "No briefings left.");
     }
-    throw new CreditError("rpc_failed", error.message);
+    if (message.includes("key_refunded")) {
+      throw new CreditError(
+        "key_refunded",
+        "That run was already refunded. Start a new run.",
+      );
+    }
+    throw new CreditError("rpc_failed", message || "Could not charge credit.");
   }
 
-  const remaining = Number(data);
-  await logCreditEvent(userId, "spend", -cost, idempotencyKey);
+  const row = firstRow(data);
+  if (!row) {
+    throw new CreditError("rpc_failed", "Credit charge returned no result.");
+  }
 
-  return { remaining, chargedThisRequest: true };
+  return {
+    remaining: Number(row.remaining ?? 0),
+    chargedThisRequest: Boolean(row.charged),
+  };
 }
 
+/**
+ * Refund one briefing. Only callable by the server, and only for a spend that
+ * actually happened with the same idempotency key. Returns the remaining
+ * balance, or null when the key was already refunded or never charged.
+ */
 export async function refundCreditForUser(
   userId: string,
   cost = CREDIT_COST,
@@ -162,29 +146,51 @@ export async function refundCreditForUser(
 ): Promise<number | null> {
   assertSupabaseServerReady();
   const idempotencyKey = normalizeIdempotencyKey(idempotencyKeyRaw);
-
-  if (idempotencyKey && (await hasRefundEvent(userId, idempotencyKey))) {
-    return null;
+  if (!idempotencyKey) {
+    throw new CreditError("invalid_key", "Missing or invalid Idempotency-Key.");
   }
 
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("refund_credit", {
     p_user_id: userId,
-    cost,
+    p_cost: cost,
+    p_idempotency_key: idempotencyKey,
+    p_note: note ?? "briefing_failed",
   });
 
   if (error) {
+    if ((error.message || "").includes("no_spend_for_key")) {
+      return null;
+    }
     console.error("[credits] refund RPC failed:", error.message);
-    await logCreditEvent(
-      userId,
-      "refund_failed",
-      cost,
-      idempotencyKey,
-      error.message,
-    );
     throw new CreditError("rpc_failed", error.message);
   }
 
-  await logCreditEvent(userId, "refund", cost, idempotencyKey, note);
-  return Number(data);
+  const row = firstRow(data);
+  if (!row || !row.refunded) return null;
+  return Number(row.remaining ?? 0);
+}
+
+/**
+ * Take back credits granted by a payment that was refunded or charged back.
+ * Idempotent on the revoke key (refund id / dispute id).
+ */
+export async function revokePurchasedCredits(
+  paymentId: string,
+  revokeKey: string,
+): Promise<number | null> {
+  assertSupabaseServerReady();
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("revoke_purchased_credits", {
+    p_payment_id: paymentId,
+    p_revoke_key: revokeKey,
+  });
+
+  if (error) {
+    throw new CreditError("rpc_failed", error.message);
+  }
+
+  const row = firstRow(data);
+  if (!row || !row.revoked) return null;
+  return Number(row.remaining ?? 0);
 }
