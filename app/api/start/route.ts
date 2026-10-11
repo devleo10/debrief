@@ -27,6 +27,7 @@ import {
 } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { liveSearchConfigured } from "@/lib/searchConfig";
+import { admitGlobalRun, releaseGlobalRun } from "@/lib/spendGuard";
 import { buildAgentResearchContext } from "@/lib/dossier";
 import {
   clientIp,
@@ -404,11 +405,35 @@ export async function POST(req: Request) {
   }
 
   let creditUserId: string | null = null;
+  let creditKey: string | null = null;
   let creditCharged = false;
   let ipCharged = false;
   let byokCharged = false;
   let llmConfig: LlmConfig | null = null;
   const idempotencyKey = req.headers.get("Idempotency-Key");
+
+  let budgetChecked = false;
+  let budgetOk = false;
+  const budgetAllows = async (): Promise<boolean> => {
+    if (!budgetChecked) {
+      budgetChecked = true;
+      budgetOk = (await admitGlobalRun()) !== "cap";
+    }
+    return budgetOk;
+  };
+  const budgetBlocked = () =>
+    Response.json(
+      {
+        error:
+          "Daily briefing capacity reached. Try again tomorrow or add your own API key.",
+      },
+      { status: 429 },
+    );
+  const releaseBudget = async () => {
+    if (!budgetOk) return;
+    budgetOk = false;
+    await releaseGlobalRun();
+  };
 
   if (isSupabaseAuthConfigured()) {
     if (!isSupabaseServerConfigured()) {
@@ -442,6 +467,7 @@ export async function POST(req: Request) {
     }
 
     if (!userLlmKey) {
+      if (!(await budgetAllows())) return budgetBlocked();
       try {
         const result = await spendCreditForUser(
           user.id,
@@ -449,11 +475,26 @@ export async function POST(req: Request) {
           undefined,
           key,
         );
+        if (!result.chargedThisRequest) {
+          await releaseBudget();
+          return Response.json(
+            {
+              error:
+                "This run key was already used. Start a new briefing to run again.",
+            },
+            { status: 409 },
+          );
+        }
         creditUserId = user.id;
-        creditCharged = result.chargedThisRequest;
+        creditKey = key;
+        creditCharged = true;
       } catch (err) {
+        await releaseBudget();
         if (err instanceof CreditError && err.code === "insufficient") {
           return Response.json({ error: "No briefings left." }, { status: 402 });
+        }
+        if (err instanceof CreditError && err.code === "key_refunded") {
+          return Response.json({ error: err.message }, { status: 409 });
         }
         const message =
           err instanceof Error ? err.message : "Could not verify account.";
@@ -469,8 +510,10 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   } else if (!userLlmKey) {
+    if (!(await budgetAllows())) return budgetBlocked();
     const admitted = await admitRequest(ip);
     if (admitted === "misconfigured") {
+      await releaseBudget();
       return Response.json(
         {
           error:
@@ -480,10 +523,11 @@ export async function POST(req: Request) {
       );
     }
     if (admitted === "quota") {
+      await releaseBudget();
       return Response.json(
         {
           error:
-            "You've used both free briefings on this network today. Paid plans are coming.",
+            "You've used your free briefings on this network today. Sign in for credits or add your own API key.",
         },
         { status: 429 },
       );
@@ -504,8 +548,10 @@ export async function POST(req: Request) {
       );
     }
     llmConfig = resolved.config;
+    if (!(await budgetAllows())) return budgetBlocked();
     const admitted = await admitByokRequest(ip);
     if (admitted === "misconfigured") {
+      await releaseBudget();
       return Response.json(
         {
           error:
@@ -515,6 +561,7 @@ export async function POST(req: Request) {
       );
     }
     if (admitted === "quota") {
+      await releaseBudget();
       return Response.json(
         {
           error:
@@ -533,7 +580,7 @@ export async function POST(req: Request) {
         await refundCreditForUser(
           creditUserId,
           undefined,
-          idempotencyKey,
+          creditKey ?? idempotencyKey,
           note ?? "briefing_failed",
         );
       } catch (err) {
@@ -647,6 +694,11 @@ export async function POST(req: Request) {
       req.signal.addEventListener("abort", onClientAbort);
       if (req.signal.aborted) abortController.abort();
 
+      let synthesisDelivered = false;
+      const heartbeat = setInterval(() => {
+        enqueue(sseEvent("ping", { t: Date.now() }));
+      }, 15_000);
+
       try {
         if (abortController.signal.aborted) {
           throw new Error("Cancelled");
@@ -682,10 +734,15 @@ export async function POST(req: Request) {
           sourceCounts(researchResult),
           clashes,
         );
+        synthesisDelivered = true;
 
         enqueue(sseEvent("done", {}));
       } catch (err: any) {
-        await refund("briefing_stream_error");
+        // Once the report has been delivered, a disconnect is not a failed
+        // run. Refunding here would hand out a free report.
+        if (!synthesisDelivered) {
+          await refund("briefing_stream_error");
+        }
         enqueue(
           sseEvent("error", {
             message:
@@ -695,6 +752,7 @@ export async function POST(req: Request) {
           }),
         );
       } finally {
+        clearInterval(heartbeat);
         req.signal.removeEventListener("abort", onClientAbort);
         try {
           controller.close();
