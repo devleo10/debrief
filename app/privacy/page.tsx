@@ -21,6 +21,12 @@ export default function PrivacyPage() {
         to produce the report. We do not sell your ideas.
       </p>
       <p>
+        You can save an OpenAI API key in this browser. We send that key with
+        the briefing request so the agents run on your account, and we do not
+        store it on our servers. Remove it from the briefing form to stop
+        sending it. Live search still uses Debrief&apos;s own search providers.
+      </p>
+      <p>
         Server logs may include IP addresses used for rate limits. Do not
         submit secrets, personal data about other people, or confidential
         third-party material.

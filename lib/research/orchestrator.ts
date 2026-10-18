@@ -1,4 +1,5 @@
 import { getOpenAI } from "../openaiClient";
+import { isRejectedLlmKey, publicModelError } from "../userLlmKey";
 import { search, type SearchResult } from "./search";
 import { filterRelevantResults } from "./relevance";
 import {
@@ -254,7 +255,8 @@ async function normalizeResearchInput(
       // Flag only a material expansion, so the UI can offer a correction.
       inferred: terse && description.trim() !== input.description.trim(),
     });
-  } catch {
+  } catch (err) {
+    if (isAbort(err) || isRejectedLlmKey(err)) throw err;
     return applyGuardrails(input);
   }
 }
@@ -289,7 +291,7 @@ async function llmExtract(
       if (!error) return data;
       lastErr = new Error(error);
     } catch (err: any) {
-      if (isAbort(err)) throw err;
+      if (isAbort(err) || isRejectedLlmKey(err)) throw err;
       lastErr = err;
     }
   }
@@ -297,7 +299,7 @@ async function llmExtract(
   enqueue(
     sseEvent({
       type: "error",
-      message: `${agentName} agent failed: ${lastErr?.message || "unknown"}`,
+      message: `${agentName} agent failed: ${publicModelError(lastErr)}`,
     }),
   );
   return null;
@@ -829,19 +831,19 @@ async function computeResearch(
 
   const [competitors, gaps, distribution, github] = await Promise.all([
     runCompetitorAgent(researchInput, enqueue, signal, evidence).catch((e) => {
-      if (isAbort(e)) throw e;
+      if (isAbort(e) || isRejectedLlmKey(e)) throw e;
       return null;
     }),
     runGapsAgent(researchInput, enqueue, signal, evidence).catch((e) => {
-      if (isAbort(e)) throw e;
+      if (isAbort(e) || isRejectedLlmKey(e)) throw e;
       return null;
     }),
     runDistributionAgent(researchInput, enqueue, signal, evidence).catch((e) => {
-      if (isAbort(e)) throw e;
+      if (isAbort(e) || isRejectedLlmKey(e)) throw e;
       return null;
     }),
     runGithubAgent(researchInput, enqueue, signal, evidence).catch((e) => {
-      if (isAbort(e)) throw e;
+      if (isAbort(e) || isRejectedLlmKey(e)) throw e;
       return null;
     }),
   ]);
@@ -854,7 +856,7 @@ async function computeResearch(
       signal,
       evidence,
     ).catch((e) => {
-      if (isAbort(e)) throw e;
+      if (isAbort(e) || isRejectedLlmKey(e)) throw e;
       return null;
     }),
     runFundingAgent(
@@ -864,7 +866,7 @@ async function computeResearch(
       signal,
       evidence,
     ).catch((e) => {
-      if (isAbort(e)) throw e;
+      if (isAbort(e) || isRejectedLlmKey(e)) throw e;
       return null;
     }),
   ]);
@@ -902,13 +904,13 @@ async function computeResearch(
   const [positioning, launch] = await Promise.all([
     runPositioningAgent(researchInput, researchData, enqueue, signal).catch(
       (e) => {
-        if (isAbort(e)) throw e;
+        if (isAbort(e) || isRejectedLlmKey(e)) throw e;
         return null;
       },
     ),
     runLaunchAgent(researchInput, researchData, null, enqueue, signal).catch(
       (e) => {
-        if (isAbort(e)) throw e;
+        if (isAbort(e) || isRejectedLlmKey(e)) throw e;
         return null;
       },
     ),

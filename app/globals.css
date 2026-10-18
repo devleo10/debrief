@@ -475,6 +475,125 @@ input, textarea, button, select { font-family: inherit; }
   .composer-rim-blob-b { animation: none; }
 }
 
+.llm-key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+}
+
+.llm-key-toggle,
+.llm-key-save,
+.llm-key-text-btn {
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.llm-key-toggle,
+.llm-key-text-btn {
+  background: none;
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
+.llm-key-toggle:hover,
+.llm-key-text-btn:hover {
+  border-color: var(--line-3);
+  color: var(--text-1);
+}
+
+.llm-key-editor,
+.llm-key-saved-row {
+  width: 100%;
+}
+
+.llm-key-saved-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.llm-key-label,
+.llm-key-saved,
+.llm-key-note,
+.llm-key-error {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.llm-key-label {
+  display: block;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+
+.llm-key-saved,
+.llm-key-note {
+  color: var(--text-3);
+  margin: 0;
+}
+
+.llm-key-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.llm-key-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.llm-key-save {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  color: var(--text-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.llm-key-save:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.llm-key-error {
+  color: var(--kill);
+  margin: 8px 0 0;
+}
+
+.llm-key-editor .llm-key-text-btn {
+  margin-top: 8px;
+}
+
+.llm-key button:focus-visible,
+.llm-key input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .llm-key-row {
+    flex-direction: column;
+  }
+}
+
 .auth-scrim {
   position: fixed;
   inset: 0;
