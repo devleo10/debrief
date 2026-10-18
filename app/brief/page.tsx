@@ -57,6 +57,8 @@ import {
   readoutSection,
 } from "@/lib/parseReadout";
 import { useBriefRun, type ResearchAgentStatus } from "./useBriefRun";
+import LlmKeyField from "@/components/LlmKeyField";
+import { hasStoredLlmKey } from "@/lib/llmKeyStorage";
 const Report = dynamic(() => import("./report/Report"), { ssr: false });
 import "../globals.css";
 import "./brief.css";
@@ -290,12 +292,13 @@ function OutOfCreditsBanner() {
   return (
     <div className="error-banner" role="alert">
       <span>
-        No briefings left on this device.
+        No briefings left on this device. Add an OpenAI key above to run on
+        your account.
         {support ? (
           <>
             {" "}
-            Email <a href={`mailto:${support}`}>{support}</a> if you need more
-            — we are not selling credits yet.
+            Or email <a href={`mailto:${support}`}>{support}</a> if you need
+            more — we are not selling credits yet.
           </>
         ) : (
           <> We are not selling credits yet.</>
@@ -367,6 +370,11 @@ function BriefPage() {
   );
   const [lastIdea, setLastIdea] = useState<IdeaInput | null>(null);
   const [outOfCredits, setOutOfCredits] = useState(false);
+  const [usingOwnKey, setUsingOwnKey] = useState(false);
+  const onOwnKey = useCallback((active: boolean) => {
+    setUsingOwnKey(active);
+    if (active) setOutOfCredits(false);
+  }, []);
 
   // Voice — shared Web Speech hook; onText composes into the quick input.
   const voiceRaw = useSpeechInput();
@@ -409,6 +417,7 @@ function BriefPage() {
     error,
     researchAgents,
     agentResults,
+    clashes,
     synthesis,
     competitors,
     pricing,
@@ -426,6 +435,7 @@ function BriefPage() {
     setError,
     setCancelled,
     setAgentResults,
+    setClashes,
     setSynthesis,
     run: runUnified,
     cancel: handleCancel,
@@ -522,24 +532,27 @@ function BriefPage() {
   }, [loading, handleCancel]);
 
   const beginRun = useCallback((idea: IdeaInput) => {
+    const ownKey = hasStoredLlmKey();
     if (!user) {
       if (usingSupabase) {
         writePendingIdea(idea.description);
         openAuth();
         return;
       }
-      try {
-        spendAnonCredit();
-        spentAnonRef.current = true;
-      } catch {
-        writePendingIdea(idea.description);
-        openAuth();
-        return;
+      if (!ownKey) {
+        try {
+          spendAnonCredit();
+          spentAnonRef.current = true;
+        } catch {
+          writePendingIdea(idea.description);
+          openAuth();
+          return;
+        }
       }
-    } else if (user.credits < 1) {
+    } else if (!ownKey && user.credits < 1) {
       setOutOfCredits(true);
       return;
-    } else if (!usingSupabase) {
+    } else if (!ownKey && !usingSupabase) {
       try {
         spend();
         spentRef.current = true;
@@ -627,6 +640,7 @@ function BriefPage() {
     const agents: Record<string, AgentResult> = {};
     for (const a of entry.agents) agents[a.agent] = a;
     setAgentResults(agents);
+    setClashes(entry.clashes || []);
     setSynthesis(entry.synthesis);
     setLastIdea({ title: entry.title, description: entry.description });
     setQuickInput(entry.description || "");
@@ -697,6 +711,7 @@ function BriefPage() {
     verdict,
     scores: synthesis?.scores ?? null,
     agents: Object.values(agentResults),
+    clashes,
     synthesis,
     research:
       sources.length > 0 || github
@@ -871,9 +886,14 @@ function BriefPage() {
                       onClick={handleQuickSubmit}
                       disabled={!quickInput.trim() || loading}
                     >
-                      {loading ? "Starting…" : "Run briefing"}
+                      {loading
+                        ? "Starting…"
+                        : usingOwnKey
+                          ? "Run on your key"
+                          : "Run briefing"}
                       <ArrowRight size={16} />
                     </button>
+                    <LlmKeyField onActive={onOwnKey} />
                   </div>
 
                   <button
@@ -1061,8 +1081,13 @@ function BriefPage() {
                         loading
                       }
                     >
-                      {loading ? "Running briefing..." : "Run briefing"}
+                      {loading
+                        ? "Running briefing..."
+                        : usingOwnKey
+                          ? "Run on your key"
+                          : "Run briefing"}
                     </button>
+                    <LlmKeyField onActive={onOwnKey} />
                     <div className="submit-meta">
                       ~60 seconds · ship, pivot, or kill
                     </div>
@@ -1090,7 +1115,7 @@ function BriefPage() {
             </div>
           )}
 
-          {outOfCredits && <OutOfCreditsBanner />}
+          {outOfCredits && !usingOwnKey && <OutOfCreditsBanner />}
           {error && (
             <div className="error-banner" role="alert">
               {error}
@@ -1278,6 +1303,7 @@ function BriefPage() {
                 discardedSources={integrity?.discarded ?? 0}
                 agentOrder={agentOrder}
                 agentResults={agentResults}
+                clashes={clashes}
                 loading={loading}
                 hasSynthesis={Boolean(synthesis)}
                 signedIn={Boolean(user)}

@@ -4,9 +4,21 @@ import {
   spendCreditForUser,
   parseIdempotencyKey,
 } from "@/lib/auth/serverCredits";
-import { getOpenAI } from "@/lib/openaiClient";
+import { getOpenAI, probeOpenAIKey, runWithUserLlmKey } from "@/lib/openaiClient";
+import {
+  isRejectedLlmKey,
+  publicModelError,
+  readUserLlmKey,
+  redactSecrets,
+} from "@/lib/userLlmKey";
 import { runResearch } from "@/lib/research/orchestrator";
-import { admitRequest, releaseRequest, startLimiter } from "@/lib/rateLimit";
+import {
+  admitByokRequest,
+  admitRequest,
+  releaseByokRequest,
+  releaseRequest,
+  startLimiter,
+} from "@/lib/rateLimit";
 import {
   isSupabaseAuthConfigured,
   isSupabaseServerConfigured,
@@ -19,7 +31,7 @@ import {
   originAllowed,
   readJsonCapped,
 } from "@/lib/requestGuard";
-import { maybeDowngradeShip } from "@/lib/runIntegrity";
+import { maybeDowngradeShip, scoreAgreement } from "@/lib/runIntegrity";
 import { vcPrompt } from "@/lib/agents/vc";
 import { engineerPrompt } from "@/lib/agents/engineer";
 import { indiePrompt } from "@/lib/agents/indiehacker";
@@ -29,6 +41,10 @@ import { userPrompt } from "@/lib/agents/user";
 import { devilPrompt } from "@/lib/agents/devil";
 import { synthPrompt } from "@/lib/agents/synthesizer";
 import {
+  clashSystemPrompt,
+  buildClashUserMessage,
+} from "@/lib/agents/clash";
+import {
   extractScores,
   emptyScores,
   hasAnyScore,
@@ -36,8 +52,13 @@ import {
   averageScores,
 } from "@/lib/extractScores";
 import { extractVerdict, verdictFromScore } from "@/lib/extractVerdict";
-import type { AgentResult, AgentScores, ValidateResponse } from "@/lib/types";
-import type { ResearchInput } from "@/lib/research/types";
+import type {
+  AgentResult,
+  AgentScores,
+  ClashResult,
+  ValidateResponse,
+} from "@/lib/types";
+import type { ResearchInput, ResearchResult } from "@/lib/research/types";
 
 export const maxDuration = 300;
 
@@ -126,9 +147,14 @@ async function runAgent(
     }
     return { agent: spec.name, output, scores };
   } catch (err: any) {
+    if (isRejectedLlmKey(err)) throw err;
+    const detail = redactSecrets(String(err?.message || "unknown error")).slice(
+      0,
+      180,
+    );
     return {
       agent: spec.name,
-      output: `This agent failed to respond (${err?.message || "unknown error"}). Its perspective is missing from this run.`,
+      output: `This agent failed to respond (${detail}). Its perspective is missing from this run.`,
       scores: emptyScores(),
       error: true,
     };
@@ -137,12 +163,49 @@ async function runAgent(
 
 async function runAgents(
   ideaText: string,
+  research: ResearchResult,
   enqueue: (chunk: string) => void,
 ): Promise<AgentResult[]> {
   return Promise.all(
     AGENTS.map(async (spec) => {
-      const result = await runAgent(spec, ideaText);
+      const context = buildAgentResearchContext(research, spec.name);
+      const result = await runAgent(spec, `${ideaText}\n\n${context}`);
       enqueue(sseEvent("agent", result));
+      return result;
+    }),
+  );
+}
+
+/**
+ * Cross-examination pass: each critic reacts to the other critics' claims so
+ * the synthesizer can draw tension from a real exchange. Skipped when fewer
+ * than two critics succeeded.
+ */
+async function runClash(
+  ideaText: string,
+  agentResults: AgentResult[],
+  enqueue: (chunk: string) => void,
+): Promise<ClashResult[]> {
+  const succeeded = agentResults.filter((r) => !r.error);
+  if (succeeded.length < 2) return [];
+
+  return Promise.all(
+    succeeded.map(async (own) => {
+      const others = succeeded.filter((r) => r.agent !== own.agent);
+      let output = "";
+      try {
+        output = stripStructuredBlocks(
+          await complete(
+            clashSystemPrompt(own.agent),
+            `${ideaText}\n\n${buildClashUserMessage(own, others)}`,
+            { maxTokens: 220, temperature: 0.4 },
+          ),
+        );
+      } catch {
+        output = "";
+      }
+      const result: ClashResult = { agent: own.agent, output };
+      enqueue(sseEvent("clash", { type: "clash", ...result }));
       return result;
     }),
   );
@@ -169,16 +232,24 @@ async function runSynthesis(
   agentResults: AgentResult[],
   enqueue: (chunk: string) => void,
   counts: SourceCounts = { cited: 0, fetched: 0, discarded: 0 },
+  clashes: ClashResult[] = [],
 ): Promise<{
   synthesis: ValidateResponse["synthesis"];
   fallback: boolean;
+  agreement: "split" | "unanimous";
 }> {
   const succeeded = agentResults.filter((r) => !r.error);
   if (succeeded.length === 0) {
     throw new Error("All agents failed; cannot synthesize a verdict.");
   }
 
-  const synthInput = succeeded
+  const agreement = scoreAgreement(
+    succeeded
+      .map((r) => r.scores.overall)
+      .filter((v): v is number => v != null),
+  );
+
+  const agentBlocks = succeeded
     .map((r) => {
       const given = Object.entries(r.scores)
         .filter(([, v]) => v !== null)
@@ -187,6 +258,15 @@ async function runSynthesis(
       return `=== ${r.agent.toUpperCase()} (scores: ${given || "none"}) ===\n${stripStructuredBlocks(r.output)}`;
     })
     .join("\n\n");
+
+  const clashBlock = clashes
+    .filter((c) => c.output.trim())
+    .map((c) => `${c.agent.toUpperCase()}: ${c.output}`)
+    .join("\n\n");
+
+  const synthInput = clashBlock
+    ? `${agentBlocks}\n\n=== CROSS-EXAMINATION ===\n${clashBlock}`
+    : agentBlocks;
 
   let output = "";
   let fallback = false;
@@ -229,9 +309,10 @@ async function runSynthesis(
       fetched: counts.fetched,
       discarded: counts.discarded,
       agentFailures: agentResults.filter((r) => r.error).length,
+      agreement,
     }),
   );
-  return { synthesis, fallback };
+  return { synthesis, fallback, agreement };
 }
 
 
@@ -285,7 +366,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "description is required" }, { status: 400 });
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  const { key: userLlmKey, error: keyError } = readUserLlmKey(body.llmKey);
+  if (keyError) {
+    return Response.json({ error: keyError }, { status: 400 });
+  }
+
+  if (!userLlmKey && !process.env.OPENAI_API_KEY) {
     return Response.json(
       { error: "Server is missing OPENAI_API_KEY" },
       { status: 500 },
@@ -317,6 +403,7 @@ export async function POST(req: Request) {
   let creditUserId: string | null = null;
   let creditCharged = false;
   let ipCharged = false;
+  let byokCharged = false;
   const idempotencyKey = req.headers.get("Idempotency-Key");
 
   if (isSupabaseAuthConfigured()) {
@@ -350,22 +437,24 @@ export async function POST(req: Request) {
       );
     }
 
-    try {
-      const result = await spendCreditForUser(
-        user.id,
-        user.email,
-        undefined,
-        key,
-      );
-      creditUserId = user.id;
-      creditCharged = result.chargedThisRequest;
-    } catch (err) {
-      if (err instanceof CreditError && err.code === "insufficient") {
-        return Response.json({ error: "No briefings left." }, { status: 402 });
+    if (!userLlmKey) {
+      try {
+        const result = await spendCreditForUser(
+          user.id,
+          user.email,
+          undefined,
+          key,
+        );
+        creditUserId = user.id;
+        creditCharged = result.chargedThisRequest;
+      } catch (err) {
+        if (err instanceof CreditError && err.code === "insufficient") {
+          return Response.json({ error: "No briefings left." }, { status: 402 });
+        }
+        const message =
+          err instanceof Error ? err.message : "Could not verify account.";
+        return Response.json({ error: message }, { status: 500 });
       }
-      const message =
-        err instanceof Error ? err.message : "Could not verify account.";
-      return Response.json({ error: message }, { status: 500 });
     }
   } else if (
     process.env.NODE_ENV === "production" &&
@@ -375,7 +464,7 @@ export async function POST(req: Request) {
       { error: "Sign-in is required. Supabase auth is not configured." },
       { status: 503 },
     );
-  } else {
+  } else if (!userLlmKey) {
     const admitted = await admitRequest(ip);
     if (admitted === "misconfigured") {
       return Response.json(
@@ -398,6 +487,33 @@ export async function POST(req: Request) {
     ipCharged = true;
   }
 
+  if (userLlmKey) {
+    const probeError = await probeOpenAIKey(userLlmKey);
+    if (probeError) {
+      return Response.json({ error: probeError }, { status: 400 });
+    }
+    const admitted = await admitByokRequest(ip);
+    if (admitted === "misconfigured") {
+      return Response.json(
+        {
+          error:
+            "Production rate limits need Upstash Redis (UPSTASH_REDIS_REST_URL + TOKEN), or set ALLOW_INMEMORY_LIMITS=1.",
+        },
+        { status: 500 },
+      );
+    }
+    if (admitted === "quota") {
+      return Response.json(
+        {
+          error:
+            "Too many briefings on your key from this network today. Try again tomorrow.",
+        },
+        { status: 429 },
+      );
+    }
+    byokCharged = true;
+  }
+
   const refund = async (note?: string) => {
     if (creditCharged && creditUserId) {
       creditCharged = false;
@@ -414,6 +530,11 @@ export async function POST(req: Request) {
           err instanceof Error ? err.message : err,
         );
       }
+      return;
+    }
+    if (byokCharged) {
+      byokCharged = false;
+      await releaseByokRequest(ip);
       return;
     }
     if (!ipCharged) return;
@@ -460,41 +581,41 @@ export async function POST(req: Request) {
 
   if (format === "json") {
     try {
-      const researchResult = await runResearch(
-        researchInput,
-        () => {},
-        req.signal,
-        { skipCache },
-      );
-      const agentResults = await runAgents(
-        `${ideaText}\n\n${buildAgentResearchContext(researchResult)}`,
-        () => {},
-      );
-      const counts = sourceCounts(researchResult);
-      const { synthesis, fallback } = await runSynthesis(
-        agentResults,
-        () => {},
-        counts,
-      );
-      return Response.json({
-        research: researchResult,
-        agents: agentResults,
-        synthesis,
-        integrity: {
-          type: "integrity",
-          fallback,
-          sources: counts.cited,
-          fetched: counts.fetched,
-          discarded: counts.discarded,
-          agentFailures: agentResults.filter((r) => r.error).length,
-        },
+      return await runWithUserLlmKey(userLlmKey, async () => {
+        const researchResult = await runResearch(
+          researchInput,
+          () => {},
+          req.signal,
+          { skipCache },
+        );
+        const agentResults = await runAgents(ideaText, researchResult, () => {});
+        const clashes = await runClash(ideaText, agentResults, () => {});
+        const counts = sourceCounts(researchResult);
+        const { synthesis, fallback, agreement } = await runSynthesis(
+          agentResults,
+          () => {},
+          counts,
+          clashes,
+        );
+        return Response.json({
+          research: researchResult,
+          agents: agentResults,
+          clashes,
+          synthesis,
+          integrity: {
+            type: "integrity",
+            fallback,
+            sources: counts.cited,
+            fetched: counts.fetched,
+            discarded: counts.discarded,
+            agentFailures: agentResults.filter((r) => r.error).length,
+            agreement,
+          },
+        });
       });
     } catch (err: any) {
       await refund("json_briefing_error");
-      return Response.json(
-        { error: err.message || "Unknown error" },
-        { status: 500 },
-      );
+      return Response.json({ error: publicModelError(err) }, { status: 500 });
     }
   }
 
@@ -503,6 +624,7 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      await runWithUserLlmKey(userLlmKey, async () => {
       const enqueue = (chunk: string) => {
         try {
           controller.enqueue(encoder.encode(chunk));
@@ -536,13 +658,18 @@ export async function POST(req: Request) {
         }
 
         enqueue(sseEvent("status", { phase: "validate", status: "starting" }));
-        const agentResults = await runAgents(
-          `${ideaText}\n\n${buildAgentResearchContext(researchResult)}`,
-          enqueue,
-        );
+        const agentResults = await runAgents(ideaText, researchResult, enqueue);
         if (abortController.signal.aborted) throw new Error("Cancelled");
 
-        await runSynthesis(agentResults, enqueue, sourceCounts(researchResult));
+        const clashes = await runClash(ideaText, agentResults, enqueue);
+        if (abortController.signal.aborted) throw new Error("Cancelled");
+
+        await runSynthesis(
+          agentResults,
+          enqueue,
+          sourceCounts(researchResult),
+          clashes,
+        );
 
         enqueue(sseEvent("done", {}));
       } catch (err: any) {
@@ -552,7 +679,7 @@ export async function POST(req: Request) {
             message:
               err.message === "Cancelled"
                 ? "Cancelled"
-                : err.message || "Research failed",
+                : publicModelError(err),
           }),
         );
       } finally {
@@ -561,6 +688,7 @@ export async function POST(req: Request) {
           controller.close();
         } catch {}
       }
+      });
     },
   });
 

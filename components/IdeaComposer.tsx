@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { ArrowUp } from "lucide-react";
 import { readAnonCredits } from "@/lib/auth/store";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { hasStoredLlmKey } from "@/lib/llmKeyStorage";
+import LlmKeyField from "@/components/LlmKeyField";
 
 const EXAMPLES = [
   "A cross-border payments API for African SaaS selling to US customers",
@@ -19,11 +21,13 @@ export default function IdeaComposer() {
   const { user, startingCredits, usingSupabase } = useAuth();
   const [value, setValue] = useState("");
   const [anonCredits, setAnonCredits] = useState(0);
+  const [ownKey, setOwnKey] = useState(false);
   const [index, setIndex] = useState(0);
   const [typed, setTyped] = useState("");
   const [focused, setFocused] = useState(false);
 
   useEffect(() => {
+    setOwnKey(hasStoredLlmKey());
     if (usingSupabase) return;
     setAnonCredits(readAnonCredits());
   }, [user, usingSupabase]);
@@ -97,7 +101,9 @@ export default function IdeaComposer() {
 
   const showGhost = !value;
 
-  const creditLine = user
+  const creditLine = ownKey
+    ? "Runs on your OpenAI key"
+    : user
     ? `${user.credits} verdict${user.credits === 1 ? "" : "s"} left`
     : usingSupabase
       ? `${startingCredits} free verdicts after you sign in`
@@ -158,6 +164,7 @@ export default function IdeaComposer() {
             <ArrowUp size={18} />
           </button>
         </div>
+        <LlmKeyField onActive={setOwnKey} />
       </div>
     </div>
   );
