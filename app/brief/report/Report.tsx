@@ -22,7 +22,7 @@ import { splitCriteria } from "@/lib/parseReadout";
 import { verdictContestsPitch } from "@/lib/verdictFraming";
 import { integritySummary, isDegradedRun, type RunIntegrity } from "@/lib/runIntegrity";
 import type { Verdict } from "@/lib/extractVerdict";
-import type { AgentResult, AgentScores } from "@/lib/types";
+import type { AgentResult, AgentScores, ClashResult } from "@/lib/types";
 import type { SourceLink } from "@/lib/research/types";
 import type { EvidenceData } from "./evidence";
 import "./report.css";
@@ -45,6 +45,7 @@ export type ReportProps = {
   discardedSources: number;
   agentOrder: string[];
   agentResults: Record<string, AgentResult>;
+  clashes: ClashResult[];
   loading: boolean;
   hasSynthesis: boolean;
   signedIn: boolean;
@@ -109,6 +110,7 @@ export default function Report(props: ReportProps) {
       : "";
   const criteria = props.killCriteria ? splitCriteria(props.killCriteria) : [];
   const ev = props.evidence;
+  const rebuttals = props.clashes.filter((c) => c.output.trim());
 
   const repoCount = ev.github?.repos?.length ?? 0;
   const citedCount = props.sources.filter((s) => s.cited).length || props.sources.length;
@@ -309,6 +311,26 @@ export default function Report(props: ReportProps) {
                     }))
                   }
                 />
+              ))}
+            </div>
+          </Disclosure>
+        )}
+
+        {rebuttals.length > 0 && (
+          <Disclosure
+            title="Cross-examination"
+            meta={countLabel(rebuttals.length, "rebuttal")}
+            open={!!open.clash}
+            onToggle={() => toggle("clash")}
+          >
+            <div className="readout-grid">
+              {rebuttals.map((c) => (
+                <article key={c.agent} className="readout-card">
+                  <h3 className="readout-label">
+                    {agentMetaMap[c.agent]?.label ?? c.agent}
+                  </h3>
+                  <Prose text={c.output} />
+                </article>
               ))}
             </div>
           </Disclosure>

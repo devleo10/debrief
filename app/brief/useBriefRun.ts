@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { extractVerdict } from "@/lib/extractVerdict";
 import { prependHistory } from "@/lib/historyStorage";
-import type { AgentResult, SynthesisResult, HistoryEntry, IdeaInput } from "@/lib/types";
+import type { AgentResult, ClashResult, SynthesisResult, HistoryEntry, IdeaInput } from "@/lib/types";
 import type {
   Competitor,
   Positioning,
@@ -13,6 +13,7 @@ import type {
   GitHubLandscape,
 } from "@/lib/research/types";
 import type { RunIntegrity } from "@/lib/runIntegrity";
+import { readStoredLlmKey } from "@/lib/llmKeyStorage";
 
 export type ResearchAgentStatus = {
   agent: string;
@@ -33,6 +34,7 @@ export type BriefRun = {
 
   researchAgents: ResearchAgentStatus[];
   agentResults: Record<string, AgentResult>;
+  clashes: ClashResult[];
   synthesis: SynthesisResult | null;
 
   competitors: Competitor[];
@@ -52,6 +54,7 @@ export type BriefRun = {
   setError: (v: string | null) => void;
   setCancelled: (v: boolean) => void;
   setAgentResults: React.Dispatch<React.SetStateAction<Record<string, AgentResult>>>;
+  setClashes: React.Dispatch<React.SetStateAction<ClashResult[]>>;
   setSynthesis: React.Dispatch<React.SetStateAction<SynthesisResult | null>>;
 
   run: (idea: IdeaInput) => Promise<void>;
@@ -77,6 +80,7 @@ export function useBriefRun(
 
   const [researchAgents, setResearchAgents] = useState<ResearchAgentStatus[]>([]);
   const [agentResults, setAgentResults] = useState<Record<string, AgentResult>>({});
+  const [clashes, setClashes] = useState<ClashResult[]>([]);
   const [synthesis, setSynthesis] = useState<SynthesisResult | null>(null);
 
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
@@ -118,11 +122,12 @@ export function useBriefRun(
     setIntegrity(null);
     setResearchAgents([]);
     setAgentResults({});
+    setClashes([]);
     setSynthesis(null);
     setError(null);
   }, []);
 
-  const saveToHistory = useCallback((idea: IdeaInput, agents: AgentResult[], synth: SynthesisResult) => {
+  const saveToHistory = useCallback((idea: IdeaInput, agents: AgentResult[], synth: SynthesisResult, runClashes: ClashResult[]) => {
     onHistory({
       title: idea.title,
       description: idea.description,
@@ -130,6 +135,7 @@ export function useBriefRun(
       verdict: extractVerdict(synth.output, synth.scores.overall) || "",
       overall: synth.scores.overall,
       agents,
+      clashes: runClashes,
       synthesis: synth,
     });
   }, [onHistory]);
@@ -175,7 +181,13 @@ export function useBriefRun(
         fetched: Number(data.fetched) || 0,
         discarded: Number(data.discarded) || 0,
         agentFailures: Number(data.agentFailures) || 0,
+        agreement: data.agreement === "unanimous" ? "unanimous" : "split",
       });
+    } else if (data.type === "clash" && data.agent) {
+      setClashes((prev) => [
+        ...prev,
+        { agent: data.agent, output: String(data.output || "") },
+      ]);
     }
     // Validation events
     else if (data.agent && data.output !== undefined && data.scores) {
@@ -208,12 +220,16 @@ export function useBriefRun(
     abortRef.current = controller;
 
     let localAgents: Record<string, AgentResult> = {};
+    let localClashes: ClashResult[] = [];
     let localSynth: SynthesisResult | null = null;
+    let streamError = "";
 
     const idempotencyKey =
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `run-${Date.now()}-${runId}`;
+
+    const llmKey = readStoredLlmKey();
 
     try {
       const res = await fetch("/api/start", {
@@ -223,7 +239,7 @@ export function useBriefRun(
           "Idempotency-Key": idempotencyKey,
         },
         credentials: "same-origin",
-        body: JSON.stringify(idea),
+        body: JSON.stringify(llmKey ? { ...idea, llmKey } : idea),
         signal: controller.signal,
       });
 
@@ -260,7 +276,11 @@ export function useBriefRun(
               if (!stillThisRun()) return;
               handleEvent(data);
 
-              if (data.agent && data.output !== undefined && data.scores) {
+              if (data.type === "error" && typeof data.message === "string") {
+                streamError = data.message;
+              } else if (data.type === "clash" && data.agent) {
+                localClashes.push({ agent: data.agent, output: String(data.output || "") });
+              } else if (data.agent && data.output !== undefined && data.scores) {
                 localAgents[data.agent] = data;
               } else if (data.output !== undefined && data.scores && !data.agent) {
                 localSynth = data;
@@ -275,22 +295,29 @@ export function useBriefRun(
       if (!stillThisRun()) return;
       setLoading(false);
       if (localSynth) {
-        saveToHistory(idea, Object.values(localAgents), localSynth);
+        saveToHistory(idea, Object.values(localAgents), localSynth, localClashes);
       } else {
-        try {
-          await fetch("/api/account/refund-briefing", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              idempotencyKey,
-              reason: "incomplete_report",
-            }),
-          });
-        } catch {
-          // Server may have already refunded on stream error.
+        if (!llmKey) {
+          try {
+            await fetch("/api/account/refund-briefing", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                idempotencyKey,
+                reason: "incomplete_report",
+              }),
+            });
+          } catch {
+            // Server may have already refunded on stream error.
+          }
         }
-        setError("Report did not complete. Your credit was restored if it was charged.");
+        setError(
+          llmKey
+            ? streamError ||
+                "Report did not complete. This run used your OpenAI key, so no briefing credit was charged."
+            : "Report did not complete. Your credit was restored if it was charged.",
+        );
         onFailureRef.current?.();
       }
     } catch (err: any) {
@@ -317,6 +344,7 @@ export function useBriefRun(
     error,
     researchAgents,
     agentResults,
+    clashes,
     synthesis,
     competitors,
     pricing,
@@ -334,6 +362,7 @@ export function useBriefRun(
     setError,
     setCancelled,
     setAgentResults,
+    setClashes,
     setSynthesis,
     run,
     cancel,

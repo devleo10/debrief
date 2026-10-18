@@ -49,6 +49,21 @@ describe("buildReportMarkdown", () => {
     expect(md).toContain("## Agent: ux (failed this run)");
   });
 
+  it("renders the cross-examination section and strips its tags", () => {
+    const md = buildReportMarkdown({
+      title: "T",
+      description: "D",
+      clashes: [
+        { agent: "devil", output: "The VC is wrong about the market. <scores>{\"overall\":2}</scores>" },
+        { agent: "vc", output: "   " },
+      ],
+    });
+    expect(md).toContain("## Cross-examination");
+    expect(md).toContain("**devil**: The VC is wrong about the market.");
+    expect(md).not.toContain("<scores>");
+    expect(md).not.toContain("**vc**");
+  });
+
   it("includes live source links when research is present", () => {
     const md = buildReportMarkdown({
       title: "T",

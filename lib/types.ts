@@ -12,6 +12,12 @@ export type AgentResult = {
   error?: boolean;
 };
 
+/** One critic's reaction to the other critics' claims, before synthesis. */
+export type ClashResult = {
+  agent: string;
+  output: string;
+};
+
 export type SynthesisResult = {
   output: string;
   scores: AgentScores;
@@ -19,6 +25,7 @@ export type SynthesisResult = {
 
 export type ValidateResponse = {
   agents: AgentResult[];
+  clashes?: ClashResult[];
   synthesis: SynthesisResult;
 };
 
@@ -46,5 +53,7 @@ export type HistoryEntry = {
   verdict: string;
   overall: number | null;
   agents: AgentResult[];
+  /** Cross-examination; absent on entries saved before this existed. */
+  clashes?: ClashResult[];
   synthesis: SynthesisResult;
 };

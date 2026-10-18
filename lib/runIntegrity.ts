@@ -8,6 +8,8 @@ export type RunIntegrity = {
   fetched?: number;
   /** Results dropped as off-topic before any agent saw them. */
   discarded?: number;
+  /** Overall-score spread across critics: a near-flat room is a weak signal. */
+  agreement?: "split" | "unanimous";
 };
 
 export function isDegradedRun(integrity: RunIntegrity): boolean {
@@ -27,6 +29,16 @@ export function maybeDowngradeShip(output: string, sources: number): string {
   );
 }
 
+/**
+ * A room where every critic landed within one point did not disagree, which is
+ * a weak signal (TheBoardroom's rule). Needs at least two scored critics.
+ */
+export function scoreAgreement(overalls: number[]): "split" | "unanimous" {
+  if (overalls.length < 2) return "split";
+  const spread = Math.max(...overalls) - Math.min(...overalls);
+  return spread <= 1 ? "unanimous" : "split";
+}
+
 export function integritySummary(integrity: RunIntegrity): string {
   const bits = [
     `${integrity.sources} cited source${integrity.sources === 1 ? "" : "s"}${
@@ -40,6 +52,9 @@ export function integritySummary(integrity: RunIntegrity): string {
     integrity.agentFailures > 0
       ? `${integrity.agentFailures} agent${integrity.agentFailures === 1 ? "" : "s"} failed`
       : "all agents responded",
+    integrity.agreement === "unanimous"
+      ? "the room failed to disagree"
+      : null,
     integrity.fallback ? "synthesis averaged from agents" : "synthesizer wrote the readout",
   ];
   return bits.filter(Boolean).join(", ");

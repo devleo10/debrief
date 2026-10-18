@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAgentResearchContext,
+  buildDossierForAgent,
   buildDossierForAgents,
   buildGithubMandateForAgents,
 } from "@/lib/dossier";
@@ -148,5 +149,66 @@ describe("buildAgentResearchContext", () => {
     expect(context.indexOf("GitHub landscape")).toBeLessThan(
       context.indexOf("MANDATORY GITHUB CHECK"),
     );
+  });
+});
+
+const richResearch: ResearchResult = {
+  ...baseResearch,
+  competitors: [{ ...competitor("Geekbot"), pricing: "$2.50/user" }],
+  pricing: {
+    competitors: [{ name: "Geekbot", tiers: [{ name: "Pro", price: 3, features: "x" }] }],
+  } as never,
+  funding: {
+    market_size: { tam: "$10B", sam: "$1B", som: "$10M", sources: [] },
+    funding_landscape: {
+      total_raised: "$500M",
+      average_round: "$10M",
+      hot_areas: [],
+      notable_rounds: [
+        { company: "Nova", amount: "$12M", round: "Series A", date: "2025" },
+      ],
+    },
+  },
+  launch: {
+    phase_1_pre_launch: { timeline: "Week 1", actions: ["landing page"] },
+    phase_2_launch: { timeline: "Week 2", actions: ["beta"] },
+    phase_3_post_launch: { timeline: "Week 3", actions: ["growth"] },
+    kpis: ["signups"],
+  },
+  github: githubFixture,
+};
+
+describe("buildDossierForAgent", () => {
+  it("puts the VC's sections (pricing, funding) before unrelated evidence", () => {
+    const dossier = buildDossierForAgent(richResearch, "vc");
+    expect(dossier).toContain("Funding:");
+    expect(dossier.indexOf("Pricing:")).toBeLessThan(
+      dossier.indexOf("GitHub landscape"),
+    );
+  });
+
+  it("puts GitHub first for the engineer", () => {
+    const dossier = buildDossierForAgent(richResearch, "engineer");
+    expect(dossier.indexOf("GitHub landscape")).toBeLessThan(
+      dossier.indexOf("Pricing:"),
+    );
+  });
+
+  it("includes the launch plan for the PM", () => {
+    expect(buildDossierForAgent(richResearch, "pm")).toContain("Launch plan:");
+  });
+
+  it("falls back to the shared order for an unknown agent", () => {
+    expect(buildDossierForAgent(richResearch, "nobody")).toBe(
+      buildDossierForAgents(richResearch),
+    );
+  });
+
+  it("still caps each critic's dossier at 7000 characters", () => {
+    const many = Array.from({ length: 40 }, (_, i) =>
+      competitor(`Competitor Number ${i} With A Very Long Description`.repeat(5))
+    );
+    const dossier = buildDossierForAgent({ ...richResearch, competitors: many }, "vc");
+    expect(dossier.length).toBeLessThanOrEqual(7000);
   });
 });

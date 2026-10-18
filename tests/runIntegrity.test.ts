@@ -3,6 +3,7 @@ import {
   integritySummary,
   isDegradedRun,
   maybeDowngradeShip,
+  scoreAgreement,
 } from "@/lib/runIntegrity";
 
 describe("maybeDowngradeShip", () => {
@@ -71,5 +72,31 @@ describe("integritySummary", () => {
     });
     expect(summary).toContain("12 cited sources of 70 fetched");
     expect(summary).toContain("14 dropped as off-topic");
+  });
+
+  it("notes a room that failed to disagree", () => {
+    expect(
+      integritySummary({
+        type: "integrity",
+        fallback: false,
+        sources: 3,
+        agentFailures: 0,
+        agreement: "unanimous",
+      }),
+    ).toContain("the room failed to disagree");
+  });
+});
+
+describe("scoreAgreement", () => {
+  it("calls a tight spread unanimous", () => {
+    expect(scoreAgreement([5, 5, 6, 5])).toBe("unanimous");
+  });
+
+  it("calls a wide spread split", () => {
+    expect(scoreAgreement([2, 6, 4])).toBe("split");
+  });
+
+  it("cannot judge agreement from a single critic", () => {
+    expect(scoreAgreement([5])).toBe("split");
   });
 });

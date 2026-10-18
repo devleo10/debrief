@@ -1,4 +1,4 @@
-import type { AgentResult, AgentScores, SynthesisResult } from "./types";
+import type { AgentResult, AgentScores, ClashResult, SynthesisResult } from "./types";
 import { SCORE_DIMENSIONS } from "./types";
 import { stripStructuredBlocks } from "./extractScores";
 import type { ResearchResult } from "./research/types";
@@ -10,6 +10,7 @@ export type ReportInput = {
   verdict?: string | null;
   scores?: AgentScores | null;
   agents?: AgentResult[];
+  clashes?: ClashResult[];
   synthesis?: SynthesisResult | null;
   research?: ResearchResult | null;
 };
@@ -44,6 +45,14 @@ export function buildReportMarkdown(input: ReportInput): string {
 
   if (input.synthesis?.output) {
     parts.push(`## The Room's Readout\n\n${stripStructuredBlocks(input.synthesis.output)}`);
+  }
+
+  const rebuttals = (input.clashes || []).filter((c) => c.output.trim());
+  if (rebuttals.length) {
+    const lines = rebuttals
+      .map((c) => `**${c.agent}**: ${stripStructuredBlocks(c.output)}`)
+      .join("\n\n");
+    parts.push(`## Cross-examination\n\n${lines}`);
   }
 
   for (const agent of input.agents || []) {

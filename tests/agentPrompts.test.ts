@@ -107,6 +107,15 @@ describe("synthesizer prompt", () => {
     expect(synthPrompt).toMatch(/checkable from a dashboard/);
   });
 
+  it("attributes each kill criterion to the critic who demanded it", () => {
+    expect(synthPrompt).toContain("demanded by");
+  });
+
+  it("draws tension from the cross-examination pass", () => {
+    expect(synthPrompt).toContain("CROSS-EXAMINATION");
+    expect(synthPrompt).toMatch(/failed to disagree/);
+  });
+
   it("carries the shared calibration", () => {
     expect(synthPrompt).toContain(SCORE_CALIBRATION.split("\n")[0]);
   });
