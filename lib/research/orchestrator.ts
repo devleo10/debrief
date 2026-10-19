@@ -44,9 +44,6 @@ import { redisConfigured, redisGet, redisSet } from "../upstash";
 import { pricingPageUrls, scrapePricingPages } from "./firecrawl";
 import { quarantineScrapedMarkdown } from "../scrapeTrust";
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
-const RESEARCH_MODEL = process.env.OPENAI_RESEARCH_MODEL || "gpt-4o-mini";
-
 // --- Report cache (in-memory, keyed by normalized input hash) ---
 
 const reportCache = new Map<
@@ -216,7 +213,7 @@ async function normalizeResearchInput(
   try {
     const res = await getOpenAI().chat.completions.create(
       {
-        model: RESEARCH_MODEL,
+        model: getOpenAI().resolveModel("mini"),
         messages: [
           {
             role: "system",
@@ -275,7 +272,7 @@ async function llmExtract(
     try {
       const res = await getOpenAI().chat.completions.create(
         {
-          model: RESEARCH_MODEL,
+          model: getOpenAI().resolveModel("mini"),
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: context },

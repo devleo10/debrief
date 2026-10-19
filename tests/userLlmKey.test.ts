@@ -1,29 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
   isRejectedLlmKey,
+  parseLlmKeyInput,
   publicModelError,
-  readUserLlmKey,
   redactSecrets,
 } from "@/lib/userLlmKey";
 
-describe("readUserLlmKey", () => {
+describe("parseLlmKeyInput", () => {
   it("treats an empty value as the server key", () => {
-    expect(readUserLlmKey("")).toEqual({ key: null, error: null });
-    expect(readUserLlmKey(null)).toEqual({ key: null, error: null });
-    expect(readUserLlmKey("   ")).toEqual({ key: null, error: null });
+    expect(parseLlmKeyInput("")).toEqual({ key: null, error: null });
+    expect(parseLlmKeyInput(null)).toEqual({ key: null, error: null });
+    expect(parseLlmKeyInput("   ")).toEqual({ key: null, error: null });
   });
 
-  it("accepts a project key and trims it", () => {
+  it("accepts an OpenAI project key and trims it", () => {
     const key = `sk-proj-${"a".repeat(24)}`;
-    expect(readUserLlmKey(`  ${key}  `)).toEqual({ key, error: null });
+    expect(parseLlmKeyInput(`  ${key}  `)).toEqual({ key, error: null });
   });
 
-  it("rejects keys that are not OpenAI secrets", () => {
-    expect(readUserLlmKey("sk-short").error).toMatch(/start with sk-/);
-    expect(readUserLlmKey("anthropic-key-123456789012345").error).toMatch(
-      /start with sk-/,
-    );
-    expect(readUserLlmKey(12).error).toMatch(/string/);
+  it("accepts a Google Gemini key", () => {
+    const key = `AIza${"b".repeat(35)}`;
+    expect(parseLlmKeyInput(key)).toEqual({ key, error: null });
+  });
+
+  it("rejects malformed keys", () => {
+    expect(parseLlmKeyInput("short").error).toBeTruthy();
+    expect(parseLlmKeyInput("has spaces in it at all")).toEqual({
+      key: null,
+      error: "That API key contains spaces. Paste it exactly.",
+    });
+    expect(parseLlmKeyInput(12).error).toMatch(/string/);
   });
 });
 
@@ -32,7 +38,7 @@ describe("secret redaction", () => {
     const leaked = "Incorrect API key provided: sk-proj-abcdefghijklmnopqrstuv";
     expect(redactSecrets(leaked)).not.toContain("abcdefghijklmnopqrstuv");
     expect(publicModelError(new Error(leaked))).toBe(
-      "OpenAI rejected that API key. Check it and run the briefing again.",
+      "That API key was rejected. Check it and run the briefing again.",
     );
   });
 

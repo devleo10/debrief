@@ -4,11 +4,13 @@ import {
   spendCreditForUser,
   parseIdempotencyKey,
 } from "@/lib/auth/serverCredits";
-import { getOpenAI, probeOpenAIKey, runWithUserLlmKey } from "@/lib/openaiClient";
+import { getOpenAI, runWithUserLlmConfig } from "@/lib/openaiClient";
+import { resolveLlmConfig } from "@/lib/llmClient";
+import { isProviderId, type LlmConfig } from "@/lib/llmProviders";
 import {
   isRejectedLlmKey,
+  parseLlmKeyInput,
   publicModelError,
-  readUserLlmKey,
   redactSecrets,
 } from "@/lib/userLlmKey";
 import { runResearch } from "@/lib/research/orchestrator";
@@ -62,8 +64,6 @@ import type { ResearchInput, ResearchResult } from "@/lib/research/types";
 
 export const maxDuration = 300;
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
-const REPAIR_MODEL = process.env.OPENAI_REPAIR_MODEL || "gpt-4o-mini";
 const MAX_FIELD_CHARS = 2_000;
 const MAX_IDEA_CHARS = 10_000;
 
@@ -101,10 +101,10 @@ function sseEvent(event: string, data: unknown): string {
 async function complete(
   system: string,
   user: string,
-  opts: { maxTokens: number; temperature: number; model?: string },
+  opts: { maxTokens: number; temperature: number; role?: "main" | "mini" },
 ): Promise<string> {
   const response = await getOpenAI().chat.completions.create({
-    model: opts.model || MODEL,
+    model: getOpenAI().resolveModel(opts.role ?? "main"),
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -123,7 +123,7 @@ async function repairScores(
     const repaired = await complete(
       `You convert a critique into its score block. Read the critique and output ONLY a <scores> block: raw JSON with keys market, technical, launch, ux, retention, overall. Use integers 1-10 for dimensions the critique clearly judges and null for the rest. No other text.`,
       `Critique from the "${agentName}" agent:\n\n${output}`,
-      { maxTokens: 120, temperature: 0, model: REPAIR_MODEL },
+      { maxTokens: 120, temperature: 0, role: "mini" },
     );
     return extractScores(repaired);
   } catch {
@@ -366,10 +366,13 @@ export async function POST(req: Request) {
     return Response.json({ error: "description is required" }, { status: 400 });
   }
 
-  const { key: userLlmKey, error: keyError } = readUserLlmKey(body.llmKey);
+  const { key: userLlmKey, error: keyError } = parseLlmKeyInput(body.llmKey);
   if (keyError) {
     return Response.json({ error: keyError }, { status: 400 });
   }
+  const llmProvider = isProviderId(body.llmProvider) ? body.llmProvider : null;
+  const llmModel =
+    typeof body.llmModel === "string" ? body.llmModel.trim().slice(0, 120) : "";
 
   if (!userLlmKey && !process.env.OPENAI_API_KEY) {
     return Response.json(
@@ -404,6 +407,7 @@ export async function POST(req: Request) {
   let creditCharged = false;
   let ipCharged = false;
   let byokCharged = false;
+  let llmConfig: LlmConfig | null = null;
   const idempotencyKey = req.headers.get("Idempotency-Key");
 
   if (isSupabaseAuthConfigured()) {
@@ -488,10 +492,18 @@ export async function POST(req: Request) {
   }
 
   if (userLlmKey) {
-    const probeError = await probeOpenAIKey(userLlmKey);
-    if (probeError) {
-      return Response.json({ error: probeError }, { status: 400 });
+    const resolved = await resolveLlmConfig({
+      apiKey: userLlmKey,
+      provider: llmProvider,
+      model: llmModel,
+    });
+    if (resolved.error || !resolved.config) {
+      return Response.json(
+        { error: resolved.error || "That API key didn't work." },
+        { status: 400 },
+      );
     }
+    llmConfig = resolved.config;
     const admitted = await admitByokRequest(ip);
     if (admitted === "misconfigured") {
       return Response.json(
@@ -581,7 +593,7 @@ export async function POST(req: Request) {
 
   if (format === "json") {
     try {
-      return await runWithUserLlmKey(userLlmKey, async () => {
+      return await runWithUserLlmConfig(llmConfig, async () => {
         const researchResult = await runResearch(
           researchInput,
           () => {},
@@ -624,7 +636,7 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      await runWithUserLlmKey(userLlmKey, async () => {
+      await runWithUserLlmConfig(llmConfig, async () => {
       const enqueue = (chunk: string) => {
         try {
           controller.enqueue(encoder.encode(chunk));

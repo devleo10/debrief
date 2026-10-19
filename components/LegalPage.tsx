@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
+import Logo from "@/components/Logo";
 import LegalFooter from "@/components/LegalFooter";
 
 export default function LegalPage({
@@ -14,7 +15,7 @@ export default function LegalPage({
     <div className="legal-shell">
       <header className="app-nav">
         <Link href="/" className="wordmark">
-          DEBRIEF
+          <Logo />
         </Link>
         <span className="brief-nav-slot" aria-hidden />
         <Link href="/brief" className="nav-btn nav-btn-accent">

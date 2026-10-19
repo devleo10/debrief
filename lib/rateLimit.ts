@@ -52,6 +52,7 @@ export function createRateLimiter(windowMs: number, max: number) {
 
 export const startLimiter = createRateLimiter(60_000, 8);
 export const validateLimiter = createRateLimiter(60_000, 12);
+export const verifyKeyLimiter = createRateLimiter(60_000, 20);
 
 export type AdmitResult = "ok" | "quota" | "misconfigured";
 

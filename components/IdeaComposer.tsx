@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp } from "lucide-react";
-import { readAnonCredits } from "@/lib/auth/store";
-import { useAuth } from "@/lib/auth/AuthProvider";
+import { readPendingIdea, useAuth, writePendingIdea } from "@/lib/auth/AuthProvider";
 import { hasStoredLlmKey } from "@/lib/llmKeyStorage";
 import LlmKeyField from "@/components/LlmKeyField";
 
@@ -18,19 +17,26 @@ const EXAMPLES = [
 
 export default function IdeaComposer() {
   const router = useRouter();
-  const { user, startingCredits, usingSupabase } = useAuth();
+  const { user, openAuth } = useAuth();
   const [value, setValue] = useState("");
-  const [anonCredits, setAnonCredits] = useState(0);
   const [ownKey, setOwnKey] = useState(false);
+  const [runAfterAuth, setRunAfterAuth] = useState(false);
   const [index, setIndex] = useState(0);
   const [typed, setTyped] = useState("");
   const [focused, setFocused] = useState(false);
 
   useEffect(() => {
     setOwnKey(hasStoredLlmKey());
-    if (usingSupabase) return;
-    setAnonCredits(readAnonCredits());
-  }, [user, usingSupabase]);
+  }, [user]);
+
+  useEffect(() => {
+    if (!runAfterAuth || !user) return;
+    const idea = readPendingIdea().trim();
+    setRunAfterAuth(false);
+    if (idea) {
+      router.push(`/brief?idea=${encodeURIComponent(idea)}&autostart=1`);
+    }
+  }, [runAfterAuth, user, router]);
 
   useEffect(() => {
     if (value || focused) return;
@@ -94,22 +100,20 @@ export default function IdeaComposer() {
   const go = () => {
     const idea = value.trim();
     if (!idea) return;
-    router.push(
-      `/brief?idea=${encodeURIComponent(idea)}&autostart=1`,
-    );
+    writePendingIdea(idea);
+    if (user) {
+      router.push(`/brief?idea=${encodeURIComponent(idea)}&autostart=1`);
+      return;
+    }
+    setRunAfterAuth(true);
+    openAuth();
   };
 
   const showGhost = !value;
 
-  const creditLine = ownKey
-    ? "Runs on your OpenAI key"
-    : user
+  const creditLine = user && !ownKey
     ? `${user.credits} verdict${user.credits === 1 ? "" : "s"} left`
-    : usingSupabase
-      ? `${startingCredits} free verdicts after you sign in`
-      : anonCredits > 0
-        ? "First verdict free · no email"
-        : `${startingCredits} free on this device`;
+    : "";
 
   return (
     <div className="composer-rim">
@@ -153,7 +157,10 @@ export default function IdeaComposer() {
           />
         </div>
         <div className="composer-bar">
-          <p>{creditLine}</p>
+          <div className="composer-meta">
+            {creditLine ? <p>{creditLine}</p> : null}
+            <LlmKeyField onActive={setOwnKey} />
+          </div>
           <button
             type="button"
             className="composer-send"
@@ -164,7 +171,6 @@ export default function IdeaComposer() {
             <ArrowUp size={18} />
           </button>
         </div>
-        <LlmKeyField onActive={setOwnKey} />
       </div>
     </div>
   );

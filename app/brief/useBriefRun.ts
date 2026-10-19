@@ -13,7 +13,8 @@ import type {
   GitHubLandscape,
 } from "@/lib/research/types";
 import type { RunIntegrity } from "@/lib/runIntegrity";
-import { readStoredLlmKey } from "@/lib/llmKeyStorage";
+import { readStoredLlmConfig } from "@/lib/llmKeyStorage";
+import { toastError } from "@/lib/toast";
 
 export type ResearchAgentStatus = {
   agent: string;
@@ -229,7 +230,7 @@ export function useBriefRun(
         ? crypto.randomUUID()
         : `run-${Date.now()}-${runId}`;
 
-    const llmKey = readStoredLlmKey();
+    const llmConfig = readStoredLlmConfig();
 
     try {
       const res = await fetch("/api/start", {
@@ -239,7 +240,16 @@ export function useBriefRun(
           "Idempotency-Key": idempotencyKey,
         },
         credentials: "same-origin",
-        body: JSON.stringify(llmKey ? { ...idea, llmKey } : idea),
+        body: JSON.stringify(
+          llmConfig
+            ? {
+                ...idea,
+                llmKey: llmConfig.apiKey,
+                llmProvider: llmConfig.provider,
+                llmModel: llmConfig.model,
+              }
+            : idea,
+        ),
         signal: controller.signal,
       });
 
@@ -297,7 +307,7 @@ export function useBriefRun(
       if (localSynth) {
         saveToHistory(idea, Object.values(localAgents), localSynth, localClashes);
       } else {
-        if (!llmKey) {
+        if (!llmConfig) {
           try {
             await fetch("/api/account/refund-briefing", {
               method: "POST",
@@ -312,18 +322,20 @@ export function useBriefRun(
             // Server may have already refunded on stream error.
           }
         }
-        setError(
-          llmKey
-            ? streamError ||
-                "Report did not complete. This run used your OpenAI key, so no briefing credit was charged."
-            : "Report did not complete. Your credit was restored if it was charged.",
-        );
+        const message = llmConfig
+          ? streamError ||
+            "Report did not complete. This run used your own API key, so no briefing credit was charged."
+          : "Report did not complete. Your credit was restored if it was charged.";
+        setError(message);
+        toastError(message);
         onFailureRef.current?.();
       }
     } catch (err: any) {
       if (!stillThisRun()) return;
       if (err.name !== "AbortError") {
-        setError(err.message || "Something went wrong");
+        const message = err.message || "Something went wrong";
+        setError(message);
+        toastError(message);
         onFailureRef.current?.();
       }
       setLoading(false);

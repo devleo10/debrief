@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Logo from "@/components/Logo";
 import LegalFooter from "@/components/LegalFooter";
 import HelmetHero from "@/components/HelmetHero";
 import IdeaComposer from "@/components/IdeaComposer";
@@ -18,7 +19,7 @@ export default function LandingPage() {
     <div className="dx">
       <header className="app-nav">
         <Link href="/" className="wordmark">
-          DEBRIEF
+          <Logo />
         </Link>
         <nav>
           {NAV.map((n) => (

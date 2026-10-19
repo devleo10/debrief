@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import Logo from "@/components/Logo";
 import {
   Search,
   DollarSign,
@@ -292,7 +293,7 @@ function OutOfCreditsBanner() {
   return (
     <div className="error-banner" role="alert">
       <span>
-        No briefings left on this device. Add an OpenAI key above to run on
+        No briefings left on this device. Add your own API key above to run on
         your account.
         {support ? (
           <>
@@ -316,7 +317,7 @@ export default function Page() {
       fallback={
         <div className="app">
           <nav className="app-nav">
-            <Link href="/" className="wordmark">DEBRIEF</Link>
+            <Link href="/" className="wordmark"><Logo /></Link>
           </nav>
           <main className="form-page">
             <p className="brief-form-sub">Loading...</p>
@@ -765,7 +766,7 @@ function BriefPage() {
       {/* ===== NAV ===== */}
       <nav className="app-nav">
         <Link href="/" className="wordmark">
-          DEBRIEF
+          <Logo />
         </Link>
         <span className="brief-nav-slot" aria-hidden />
         <div className="topnav-actions">

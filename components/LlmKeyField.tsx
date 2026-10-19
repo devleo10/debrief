@@ -1,123 +1,238 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { clearStoredLlmKey, writeStoredLlmConfig } from "@/lib/llmKeyStorage";
+import { useStoredLlmConfig } from "@/lib/useStoredLlmConfig";
 import {
-  clearStoredLlmKey,
-  hasStoredLlmKey,
-  writeStoredLlmKey,
-} from "@/lib/llmKeyStorage";
-import { readUserLlmKey } from "@/lib/userLlmKey";
+  PROVIDERS,
+  detectProviderFromKey,
+  isProviderId,
+  providerFor,
+  type LlmConfig,
+  type ProviderId,
+} from "@/lib/llmProviders";
+import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 
 type LlmKeyFieldProps = {
   onActive?: (active: boolean) => void;
 };
 
+const PROVIDER_LIST = Object.values(PROVIDERS);
+
 export default function LlmKeyField({ onActive }: LlmKeyFieldProps) {
-  const inputId = useId();
+  const keyId = useId();
+  const providerId = useId();
+  const modelId = useId();
   const [open, setOpen] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [value, setValue] = useState("");
+  const { config: saved } = useStoredLlmConfig();
+  const [key, setKey] = useState("");
+  const [provider, setProvider] = useState<ProviderId>("openai");
+  const [model, setModel] = useState("");
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const active = hasStoredLlmKey();
-    setSaved(active);
-    onActive?.(active);
-  }, [onActive]);
+    onActive?.(Boolean(saved));
+  }, [saved, onActive]);
 
-  const save = () => {
-    const { key, error: keyError } = readUserLlmKey(value);
-    if (!key) {
-      setError(keyError || "Enter an OpenAI key that starts with sk-.");
+  useEffect(() => {
+    const detected = detectProviderFromKey(key);
+    if (detected) setProvider(detected);
+  }, [key]);
+
+  const test = async () => {
+    const trimmed = key.trim();
+    if (!trimmed) {
+      setError("Paste an API key first.");
       return;
     }
-    writeStoredLlmKey(key);
-    setValue("");
+    setTesting(true);
     setError("");
-    setSaved(true);
-    setOpen(false);
-    onActive?.(true);
+    try {
+      const res = await fetch("/api/llm/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          llmKey: trimmed,
+          llmProvider: provider,
+          llmModel: model.trim() || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        provider?: unknown;
+        model?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || `Couldn't verify that key (${res.status}).`);
+      }
+      if (!isProviderId(data.provider) || !data.model) {
+        throw new Error("Verification returned an unexpected response.");
+      }
+      const config: LlmConfig = {
+        provider: data.provider,
+        model: data.model,
+        apiKey: trimmed,
+      };
+      writeStoredLlmConfig(config);
+      setOpen(false);
+      setKey("");
+      setModel("");
+      setError("");
+      onActive?.(true);
+      toastSuccess(
+        `Using your ${providerFor(config.provider).label} key · ${config.model}`,
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Couldn't verify that key.";
+      setError(message);
+      toastError(message);
+    } finally {
+      setTesting(false);
+    }
   };
 
   const remove = () => {
     clearStoredLlmKey();
-    setSaved(false);
-    setValue("");
-    setError("");
     setOpen(false);
+    setKey("");
+    setModel("");
+    setError("");
     onActive?.(false);
+    toastInfo("Removed your API key.");
   };
 
-  return (
-    <div className="llm-key">
-      {saved ? (
+  if (saved) {
+    return (
+      <div className="llm-key">
         <div className="llm-key-saved-row">
-          <p className="llm-key-saved">OpenAI key saved in this browser.</p>
+          <span className="llm-key-saved">
+            Using your {providerFor(saved.provider).label} key
+            {saved.model ? ` · ${saved.model}` : ""}
+          </span>
           <button type="button" className="llm-key-text-btn" onClick={remove}>
             Remove
           </button>
         </div>
-      ) : open ? (
+      </div>
+    );
+  }
+
+  if (open) {
+    const def = providerFor(provider);
+    return (
+      <div className="llm-key">
         <div className="llm-key-editor">
-          <label className="llm-key-label" htmlFor={inputId}>
-            OpenAI API key
+          <label className="llm-key-label" htmlFor={keyId}>
+            API key
           </label>
-          <div className="llm-key-row">
-            <input
-              id={inputId}
-              type="password"
-              name="openai-api-key"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              value={value}
-              placeholder="sk-..."
-              onChange={(e) => {
-                setValue(e.target.value);
-                if (error) setError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  save();
-                }
-              }}
-            />
-            <button type="button" className="llm-key-save" onClick={save}>
-              Save key
-            </button>
+          <input
+            id={keyId}
+            type="password"
+            name="llm-api-key"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={key}
+            placeholder={def.keyHint}
+            onChange={(e) => {
+              setKey(e.target.value);
+              if (error) setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (!testing) void test();
+              }
+            }}
+          />
+
+          <div className="llm-key-grid">
+            <div>
+              <label className="llm-key-label" htmlFor={providerId}>
+                Provider
+              </label>
+              <select
+                id={providerId}
+                value={provider}
+                onChange={(e) => {
+                  if (isProviderId(e.target.value)) setProvider(e.target.value);
+                }}
+              >
+                {PROVIDER_LIST.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="llm-key-label" htmlFor={modelId}>
+                Model
+              </label>
+              <input
+                id={modelId}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={model}
+                placeholder={def.defaultModel}
+                onChange={(e) => setModel(e.target.value)}
+              />
+            </div>
           </div>
+
           {error && (
             <p className="llm-key-error" role="alert">
               {error}
             </p>
           )}
-          <button
-            type="button"
-            className="llm-key-text-btn"
-            onClick={() => {
-              setOpen(false);
-              setValue("");
-              setError("");
-            }}
-          >
-            Cancel
-          </button>
+
+          <div className="llm-key-actions">
+            <button
+              type="button"
+              className="llm-key-save"
+              onClick={() => void test()}
+              disabled={testing}
+            >
+              {testing ? "Testing…" : "Save & test"}
+            </button>
+            <button
+              type="button"
+              className="llm-key-text-btn"
+              onClick={() => {
+                setOpen(false);
+                setKey("");
+                setModel("");
+                setError("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+
+          <p className="llm-key-note">
+            Bring your own key from{" "}
+            <a href={def.docsUrl} target="_blank" rel="noreferrer">
+              {def.label}
+            </a>
+            . It runs the agents on your account and skips verdict credits.
+          </p>
         </div>
-      ) : (
-        <button
-          type="button"
-          className="llm-key-toggle"
-          onClick={() => setOpen(true)}
-        >
-          Use your OpenAI key
-        </button>
-      )}
-      <p className="llm-key-note">
-        {saved
-          ? "This briefing runs on your key and skips a credit. Live search still uses Debrief, up to 24 runs a day on this network."
-          : "Optional. A saved key runs the agents on your account and skips briefing credits."}
-      </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="llm-key">
+      <button
+        type="button"
+        className="llm-key-link"
+        onClick={() => setOpen(true)}
+      >
+        Have your own OpenAI or Gemini key?
+      </button>
     </div>
   );
 }
