@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ensureProfileForUser } from "@/lib/auth/serverCredits";
 import { briefingProductId, dodoClient } from "@/lib/dodo";
 import { briefingPack } from "@/lib/pricing";
 import { originAllowed } from "@/lib/requestGuard";
@@ -51,6 +52,19 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user?.email) {
     return NextResponse.json({ error: "Sign in to buy briefings." }, { status: 401 });
+  }
+
+  try {
+    await ensureProfileForUser(user.id, user.email);
+  } catch (error) {
+    console.error(
+      "[checkout] profile ensure failed:",
+      error instanceof Error ? error.message : "unknown",
+    );
+    return NextResponse.json(
+      { error: "Could not load your account." },
+      { status: 500 },
+    );
   }
 
   try {

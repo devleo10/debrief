@@ -1,29 +1,21 @@
 import { Webhooks } from "@dodopayments/nextjs";
-import { grantPurchasedCredits } from "@/lib/billing/grantPurchase";
-import { dodoWebhookKey, purchaseGrantFromPayment } from "@/lib/dodo";
+import {
+  onDisputeLost,
+  onPaymentSucceeded,
+  onRefundSucceeded,
+} from "@/lib/billing/dodoWebhook";
+import { dodoWebhookKey } from "@/lib/dodo";
 
 export const runtime = "nodejs";
 
 const webhookKey = dodoWebhookKey();
 
-async function onPaymentSucceeded(payload: {
-  data: {
-    payment_id: string;
-    total_amount?: number;
-    currency?: string;
-    metadata: Record<string, unknown>;
-    product_cart?: { product_id: string; quantity: number }[] | null;
-  };
-}) {
-  const grant = purchaseGrantFromPayment(payload.data);
-  if (!grant) return;
-  await grantPurchasedCredits(grant.userId, grant.paymentId, grant.credits);
-}
-
 export const POST = webhookKey
   ? Webhooks({
       webhookKey,
       onPaymentSucceeded,
+      onRefundSucceeded,
+      onDisputeLost,
     })
   : async function unconfigured() {
       return Response.json(
