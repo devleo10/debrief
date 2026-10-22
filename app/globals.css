@@ -367,6 +367,19 @@ input, textarea, button, select { font-family: inherit; }
   color: var(--text-3);
 }
 
+.checkout-action {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.checkout-error {
+  color: var(--kill);
+  font-size: 13px;
+}
+
 .composer-rim {
   position: relative;
   width: 100%;
@@ -844,6 +857,26 @@ input, textarea, button, select { font-family: inherit; }
 }
 
 .auth-error { margin: 0; color: var(--kill); font-size: 13px; }
+
+.auth-google {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  margin: 16px 0 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.auth-google:hover {
+  border-color: var(--text-2);
+}
 
 .auth-go {
   margin-top: 8px;

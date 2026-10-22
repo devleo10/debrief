@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { useStoredLlmConfig } from "@/lib/useStoredLlmConfig";
 import { providerFor } from "@/lib/llmProviders";
 import LlmKeyField from "@/components/LlmKeyField";
+import CheckoutButton from "@/components/CheckoutButton";
 
 export default function AccountMenu() {
   const { user, ready, openAuth, signOut } = useAuth();
@@ -83,6 +84,7 @@ export default function AccountMenu() {
         >
           <p className="account-menu-panel-title">Your API key</p>
           <LlmKeyField />
+          <CheckoutButton />
         </div>
       ) : null}
     </div>

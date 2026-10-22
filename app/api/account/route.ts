@@ -14,7 +14,7 @@ export async function GET() {
     return Response.json(
       {
         error:
-          "Server misconfigured: set SUPABASE_SERVICE_ROLE_KEY alongside public Supabase env vars.",
+          "Server misconfigured: set SUPABASE_SECRET_KEY alongside the Supabase URL and publishable key.",
       },
       { status: 503 },
     );

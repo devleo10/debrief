@@ -9,6 +9,7 @@ export default function AuthGate() {
     authOpen,
     closeAuth,
     continueEmail,
+    continueGoogle,
     startingCredits,
     usingSupabase,
   } = useAuth();
@@ -68,6 +69,20 @@ export default function AuthGate() {
             </>
           )}
         </p>
+        {!sent && usingSupabase ? (
+          <button
+            type="button"
+            className="auth-google"
+            onClick={() => {
+              setError("");
+              void continueGoogle().catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : "Could not continue.");
+              });
+            }}
+          >
+            Continue with Google
+          </button>
+        ) : null}
         {!sent ? (
           <form onSubmit={submit}>
             <label htmlFor="auth-email">Email</label>

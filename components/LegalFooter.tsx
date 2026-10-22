@@ -9,9 +9,9 @@ export default function LegalFooter({ className }: { className?: string }) {
     <footer className={className}>
       © 2026 Debrief. All rights reserved. Not financial, legal, or investment
       advice.{" "}
-      <Link href="/privacy">Privacy</Link>
+      <Link href="/privacy">Privacy policy</Link>
       {" · "}
-      <Link href="/terms">Terms</Link>
+      <Link href="/terms">Terms of service</Link>
       {SUPPORT ? (
         <>
           {" · "}

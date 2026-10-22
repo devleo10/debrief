@@ -415,7 +415,7 @@ export async function POST(req: Request) {
       return Response.json(
         {
           error:
-            "Server misconfigured: SUPABASE_SERVICE_ROLE_KEY is required when Supabase auth is enabled.",
+            "Server misconfigured: SUPABASE_SECRET_KEY is required when Supabase auth is enabled.",
         },
         { status: 503 },
       );

@@ -1,15 +1,25 @@
-export function isSupabaseAuthConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+function supabaseUrl(): string | undefined {
+  return process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+}
+
+function supabasePublishableKey(): string | undefined {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY
   );
 }
 
-/** Server can verify sessions and mutate credits via service role. */
+function supabaseSecretKey(): string | undefined {
+  return process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+}
+
+export function isSupabaseAuthConfigured(): boolean {
+  return Boolean(supabaseUrl() && supabasePublishableKey());
+}
+
+/** Server can verify sessions and mutate credits via the secret key. */
 export function isSupabaseServerConfigured(): boolean {
-  return Boolean(
-    isSupabaseAuthConfigured() && process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  return Boolean(isSupabaseAuthConfigured() && supabaseSecretKey());
 }
 
 /** @deprecated use isSupabaseAuthConfigured or isSupabaseServerConfigured */
@@ -18,20 +28,20 @@ export function isSupabaseConfigured(): boolean {
 }
 
 export function getSupabaseUrl(): string {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+  const url = supabaseUrl();
+  if (!url) throw new Error("Missing SUPABASE_URL");
   return url;
 }
 
 export function getSupabaseAnonKey(): string {
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!key) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const key = supabasePublishableKey();
+  if (!key) throw new Error("Missing SUPABASE_PUBLISHABLE_KEY");
   return key;
 }
 
 export function getSupabaseServiceRoleKey(): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+  const key = supabaseSecretKey();
+  if (!key) throw new Error("Missing SUPABASE_SECRET_KEY");
   return key;
 }
 
@@ -39,9 +49,7 @@ export function assertSupabaseServerReady(): void {
   if (!isSupabaseAuthConfigured()) {
     throw new Error("Supabase auth env vars are missing.");
   }
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is required for server-side credits.",
-    );
+  if (!supabaseSecretKey()) {
+    throw new Error("SUPABASE_SECRET_KEY is required for server-side credits.");
   }
 }

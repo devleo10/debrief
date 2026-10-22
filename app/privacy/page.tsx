@@ -1,10 +1,10 @@
 import LegalPage from "@/components/LegalPage";
 
-export const metadata = { title: "Privacy — Debrief" };
+export const metadata = { title: "Privacy policy — Debrief" };
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy">
+    <LegalPage title="Privacy policy">
       <p>
         When Supabase auth is enabled, we store your account email and remaining
         briefing credits in our database. Sign-in uses a one-time email link; we
@@ -27,6 +27,11 @@ export default function PrivacyPage() {
         your account, and we do not store it on our servers. Remove it from the
         briefing form to stop sending it. Live search still uses
         Debrief&apos;s own search providers.
+      </p>
+      <p>
+        Buying briefings sends you to Dodo Payments checkout. We store the
+        payment id with your account so the same payment cannot add credits
+        twice. Card details stay with Dodo.
       </p>
       <p>
         Server logs may include IP addresses used for rate limits. Do not

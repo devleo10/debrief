@@ -32,6 +32,7 @@ type AuthContextValue = {
   openAuth: () => void;
   closeAuth: () => void;
   continueEmail: (email: string) => Promise<Account>;
+  continueGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   spend: () => Account;
   refund: () => void;
@@ -141,6 +142,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [usingSupabase],
   );
 
+  const continueGoogle = useCallback(async () => {
+    if (!usingSupabase) {
+      throw new Error("Google sign-in needs Supabase.");
+    }
+    const pending = readPendingIdea().trim();
+    const nextPath = pending
+      ? `/brief?idea=${encodeURIComponent(pending)}&autostart=1`
+      : "/brief";
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: buildAuthCallbackUrl(nextPath) },
+    });
+    if (error) throw new Error(error.message);
+  }, [usingSupabase]);
+
   const signOut = useCallback(async () => {
     if (!usingSupabase) {
       signOutSession();
@@ -178,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       openAuth: () => setAuthOpen(true),
       closeAuth: () => setAuthOpen(false),
       continueEmail,
+      continueGoogle,
       signOut,
       spend,
       refund,
@@ -191,6 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ready,
       authOpen,
       continueEmail,
+      continueGoogle,
       signOut,
       spend,
       refund,
