@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import type { BriefingPack } from "@/lib/pricing";
 
 export default function CheckoutButton({
-  label = "Buy more briefings",
+  pack,
+  label,
 }: {
-  label?: string;
+  pack: BriefingPack["id"];
+  label: string;
 }) {
+  const { openAuth } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -14,11 +19,20 @@ export default function CheckoutButton({
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/checkout", { method: "POST" });
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pack }),
+      });
       const data = (await response.json().catch(() => ({}))) as {
         checkoutUrl?: string;
         error?: string;
       };
+      if (response.status === 401) {
+        openAuth();
+        setLoading(false);
+        return;
+      }
       if (!response.ok || !data.checkoutUrl) {
         throw new Error(data.error || "Could not start checkout.");
       }

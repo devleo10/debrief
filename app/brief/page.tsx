@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import Logo from "@/components/Logo";
-import CheckoutButton from "@/components/CheckoutButton";
 import {
   Search,
   DollarSign,
@@ -295,16 +294,15 @@ function OutOfCreditsBanner() {
     <div className="error-banner" role="alert">
       <span>
         No briefings left on this device. Add your own API key above to run on
-        your account, or buy another pack. Credits land after the payment is
-        confirmed.
+        your account, or <Link href="/buy">buy briefings</Link>. Credits land
+        after the payment is confirmed.
         {support ? (
           <>
             {" "}
             Or email <a href={`mailto:${support}`}>{support}</a> if checkout is
             unavailable.
           </>
-        ) : null}{" "}
-        <CheckoutButton />
+        ) : null}
       </span>
     </div>
   );

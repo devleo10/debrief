@@ -1,4 +1,5 @@
 import DodoPayments from "dodopayments";
+import { briefingPack } from "@/lib/pricing";
 
 /** Missing or unknown values stay in test mode. Live mode is opt-in. */
 export function dodoEnvironment(): "test_mode" | "live_mode" {
@@ -22,14 +23,6 @@ export function briefingProductId(): string | null {
   return id || null;
 }
 
-/** Credits added once a verified payment for the briefing product succeeds. */
-export function creditPackSize(): number {
-  const raw = process.env.DODO_PAYMENTS_CREDIT_PACK ?? "5";
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1 || n > 100) return 5;
-  return n;
-}
-
 export function dodoClient(): DodoPayments | null {
   const bearerToken = process.env.DODO_PAYMENTS_API_KEY?.trim();
   if (!bearerToken) return null;
@@ -46,21 +39,34 @@ export type PaidBriefing = {
   credits: number;
 };
 
-/** Map a verified payment onto one briefing pack. Anything else is ignored. */
+/**
+ * Map a verified payment onto the pack we sold. The amount has to cover that
+ * pack. A cheaper charge, another product, or a missing user id grants nothing.
+ */
 export function purchaseGrantFromPayment(data: {
   payment_id?: string;
+  total_amount?: number | null;
+  currency?: string | null;
   metadata?: Record<string, unknown> | null;
   product_cart?: { product_id: string; quantity: number }[] | null;
 }): PaidBriefing | null {
   const productId = briefingProductId();
   const paymentId = data.payment_id?.trim();
   const userId = data.metadata?.app_user_id;
+  const packId = data.metadata?.pack;
   if (!productId || !paymentId || typeof userId !== "string" || !USER_ID.test(userId)) {
+    return null;
+  }
+  if (typeof packId !== "string") return null;
+  const pack = briefingPack(packId);
+  if (!pack) return null;
+  if (data.currency && data.currency !== "USD") return null;
+  if (typeof data.total_amount !== "number" || data.total_amount < pack.priceCents) {
     return null;
   }
   const sold = (data.product_cart ?? []).some(
     (line) => line.product_id === productId && line.quantity >= 1,
   );
   if (!sold) return null;
-  return { userId, paymentId, credits: creditPackSize() };
+  return { userId, paymentId, credits: pack.credits };
 }

@@ -27,6 +27,7 @@ export default function LandingPage() {
               {n.label}
             </a>
           ))}
+          <Link href="/buy">Briefings</Link>
         </nav>
         <div className="topnav-actions">
           <AccountMenu />

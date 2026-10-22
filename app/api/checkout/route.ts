@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { briefingProductId, dodoClient } from "@/lib/dodo";
+import { briefingPack } from "@/lib/pricing";
 import { originAllowed } from "@/lib/requestGuard";
 import { isSupabaseAuthConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
@@ -23,6 +24,18 @@ export async function POST(request: Request) {
     );
   }
 
+  let packId = "";
+  try {
+    const body = (await request.json()) as { pack?: unknown };
+    if (typeof body.pack === "string") packId = body.pack;
+  } catch {
+    packId = "";
+  }
+  const pack = briefingPack(packId);
+  if (!pack) {
+    return NextResponse.json({ error: "Choose a briefing pack." }, { status: 400 });
+  }
+
   const productId = briefingProductId();
   const client = dodoClient();
   if (!productId || !client) {
@@ -42,9 +55,9 @@ export async function POST(request: Request) {
 
   try {
     const session = await client.checkoutSessions.create({
-      product_cart: [{ product_id: productId, quantity: 1 }],
+      product_cart: [{ product_id: productId, quantity: 1, amount: pack.priceCents }],
       customer: { email: user.email },
-      metadata: { app_user_id: user.id },
+      metadata: { app_user_id: user.id, pack: pack.id },
       return_url: returnUrl(request),
     });
     if (!session.checkout_url) {

@@ -9,6 +9,8 @@ const webhookKey = dodoWebhookKey();
 async function onPaymentSucceeded(payload: {
   data: {
     payment_id: string;
+    total_amount?: number;
+    currency?: string;
     metadata: Record<string, unknown>;
     product_cart?: { product_id: string; quantity: number }[] | null;
   };
