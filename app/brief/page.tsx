@@ -293,9 +293,9 @@ function OutOfCreditsBanner() {
   return (
     <div className="error-banner" role="alert">
       <span>
-        No briefings left on this device. Add your own API key above to run on
-        your account, or <Link href="/buy">buy briefings</Link>. Credits land
-        after the payment is confirmed.
+        No briefings left. Add your own API key above to run on your account, or{" "}
+        <Link href="/buy">buy briefings</Link>. Credits land after the payment
+        is confirmed.
         {support ? (
           <>
             {" "}
@@ -576,7 +576,7 @@ function BriefPage() {
     if (usingSupabase) {
       clearPendingIdea();
     }
-  }, [user, usingSupabase, openAuth, spend, runUnified, voiceRaw]);
+  }, [user, usingSupabase, openAuth, spend, runUnified, voiceRaw, setCancelled, setError]);
 
   useEffect(() => {
     if (!ready || autostartRef.current) return;

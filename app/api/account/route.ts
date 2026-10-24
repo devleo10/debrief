@@ -5,6 +5,8 @@ import {
 } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   if (!isSupabaseAuthConfigured()) {
     return Response.json({ error: "Supabase auth is not configured." }, { status: 404 });
@@ -31,7 +33,9 @@ export async function GET() {
 
   try {
     const profile = await ensureProfileForUser(user.id, user.email);
-    return Response.json(profile);
+    return Response.json(profile, {
+      headers: { "cache-control": "no-store" },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not load account.";
     return Response.json({ error: message }, { status: 500 });
