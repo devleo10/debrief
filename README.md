@@ -4,7 +4,7 @@ Paste a startup idea. Seven experts with different failure lenses tear into it a
 
 It is not a motivational idea generator. Most ideas score 3–6 out of 10, and that is by design — a low score with specific reasons is the tool working, not failing.
 
-Production requires live search (`SERPAPI_API_KEY`, `EXA_API_KEY`, or `TAVILY_API_KEY`) and, on Vercel, Upstash Redis for rate limits. Each network IP gets **2 briefings per day** (resets after 24h). Local `npm run dev` still runs on OpenAI alone (mock search for two demo domains).
+Production requires live search (`SERPAPI_API_KEY`, `EXA_API_KEY`, or `TAVILY_API_KEY`), Supabase for accounts and server-side credits, Dodo Payments for checkout, and Upstash Redis for rate limits, the global daily run cap, and the research cache. New accounts get **2 briefings**; buys add packs of 5, 15, or 40. Local `npm run dev` runs on OpenAI alone with local auth and mock search for two demo domains.
 
 ## What you get
 
@@ -33,10 +33,19 @@ Optional but recommended for real research on any idea:
 SERPAPI_API_KEY=...  # preferred search provider (Google Search + News)
 EXA_API_KEY=...      # fallback if SerpApi is unset or returns nothing
 TAVILY_API_KEY=...   # fallback if Exa is unset or fails
-UPSTASH_REDIS_REST_URL=...   # required on Vercel (rate limit + cache)
+UPSTASH_REDIS_REST_URL=...   # required on Vercel (rate limits + cache + daily cap)
 UPSTASH_REDIS_REST_TOKEN=...
 FIRECRAWL_API_KEY=...        # optional; pricing-page scrape
 NEXT_PUBLIC_SUPPORT_EMAIL=you@example.com
+
+# Accounts, credits, and checkout (required for production)
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SECRET_KEY=...
+DODO_PAYMENTS_API_KEY=...
+DODO_PAYMENTS_WEBHOOK_KEY=...
+DODO_PAYMENTS_PRODUCT_ID=...
+DODO_PAYMENTS_ENVIRONMENT=live_mode
 ```
 
 See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for every variable, including model overrides.
@@ -46,8 +55,9 @@ See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for every variable, including mod
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Dev server at `localhost:3000` |
-| `npm run build` / `npm start` | Production build and serve |
-| `npm run test` | Vitest suite (114 tests) |
+| `npm run build` / `npm start` | Production build and serve (build validates prod env on Vercel) |
+| `npm run check:env` | Validate environment variables; `--strict` fails on missing prod values |
+| `npm run test` | Vitest suite (230 tests) |
 | `npm run test:watch` | Watch mode |
 | `npm run test:coverage` | Coverage report |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -59,14 +69,22 @@ See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for every variable, including mod
 app/
   page.tsx              Landing page
   brief/                The validator itself (form, streaming console, report)
-  api/start/route.ts    Orchestrator: research → 7 agents → synthesis, SSE
+  buy/                  Briefing packs
+  api/start/route.ts    Orchestrator: auth → credits → research → 7 agents → synthesis, SSE
+  api/checkout/         Dodo checkout sessions
+  api/webhook/dodo/     Payment grants, refunds, and chargebacks
 components/             Verdict banner, scorecard, agent cards, history panel
 lib/
   agents/               The prompts. This is the product; change with care.
   research/             Search cascade, extraction agents, JSON repair, cache
+  auth/                 Supabase session, server-side credits, local dev fallback
+  billing/              Dodo grants and revocations
+  spendGuard.ts         Global daily run cap
   extractScores.ts      4-layer score parsing with fallbacks
   extractVerdict.ts     Verdict tag → score → keyword resolution
   dossier.ts            Research result → evidence block injected into agents
+supabase/
+  migrations/           Profiles, credit ledger, atomic spend/refund/revoke
 docs/                   Architecture, API contract, environment, testing
 ```
 
